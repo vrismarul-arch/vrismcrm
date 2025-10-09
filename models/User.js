@@ -32,21 +32,20 @@ const userSchema = new mongoose.Schema({
     enum: ['Active', 'Inactive'],
     default: 'Active'
   },
+
+  // ✅ Add this to fix your populate('department') issue
   department: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Department',
     default: null
   },
+
   team: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Team',
     default: null
-  },
-  zone: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Zone',
-    default: null
   }
+
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

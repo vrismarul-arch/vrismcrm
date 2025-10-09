@@ -9,8 +9,6 @@ router.get('/', userController.getAllUsers);
 // Get a single user by ID
 router.get('/:id', userController.getSingleUser);
 
-// Get users by zone
-router.get('/zone/:zoneId', userController.getUsersByZone);
 
 // Create a new user
 router.post('/', userController.createUser);

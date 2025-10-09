@@ -14,16 +14,6 @@ router.get('/users', async (req, res) => {
     }
 });
 
-// NEW ROUTE: Get all zones for "Zone" dropdown
-router.get('/zones', async (req, res) => {
-    try {
-        const zones = await Zone.find({}, 'name');
-        res.json(zones);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // Route to get quotations sent
 router.get('/quotations', controller.getQuotationsSent);
 

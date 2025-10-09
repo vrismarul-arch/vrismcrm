@@ -22,7 +22,7 @@
     "jspdf": "^3.0.1",
     "jsreport": "^4.9.0",
     "moment": "^2.30.1",
-    "mongoose": "^8.13.2",
+    "mongoose": "^8.19.1",
     "pdfkit": "^0.17.1",
     "puppeteer": "^24.15.0"
   },
