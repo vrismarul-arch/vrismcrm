@@ -12,5 +12,6 @@ const workSessionSchema = new mongoose.Schema({
   accountIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "BusinessAccount" }],
   serviceIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "BrandService" }],
 });
-
-module.exports = mongoose.model("WorkSession", workSessionSchema);
+/*  */
+module.exports = mongoose.model("WorkSession", WorkSessionSchema);
+  
