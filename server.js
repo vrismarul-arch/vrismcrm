@@ -8,7 +8,7 @@ const app = express();
 // ✅ Middleware
 app.use(cors());
 const corsOptions = {
-    origin: ["https://crm.megacrane.acculermedia.in"],
+    origin: ["https://vrismcrmfrontend.vercel.app"],
     credentials: true,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
