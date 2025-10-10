@@ -4,7 +4,7 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 
 const app = express();
-
+/*  */
 // ✅ Middleware
 app.use(cors());
 const corsOptions = {
