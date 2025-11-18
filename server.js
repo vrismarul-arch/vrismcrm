@@ -27,7 +27,7 @@ const taskRoutes = require("./routes/taskRoutes");
 const departmentRoutes = require('./routes/departmentRoutes'); 
 const teamRoutes = require('./routes/teamRoutes'); 
 const workSessionRoutes = require('./routes/workSessionRoutes');
-
+const notificationRoutes = require("./routes/notificationRoutes");
 // ✅ Route mounting
 app.use('/api/auth', authRoutes);
 app.use('/api/departments', departmentRoutes); 
@@ -39,7 +39,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/service', brandServiceRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use('/api/work-sessions', workSessionRoutes); 
-
+app.use("/api/notifications", notificationRoutes);
 // ✅ Test route (optional)
 app.get('/api/test', (req, res) => {
     res.json({ message: 'Server is working fine 🎉' });

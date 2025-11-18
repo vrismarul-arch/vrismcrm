@@ -93,7 +93,7 @@ exports.getTodaysSession = async (req, res) => {
       .sort({ loginTime: 1 });
 
     const grouped = sessions.reduce((acc, s) => {
-      const date = dayjs(s.loginTime).format("YYYY-MM-DD");
+      const date = dayjs(s.loginTime).format("DD-MM-YYYY");
       if (!acc[date]) acc[date] = [];
       acc[date].push(s);
       return acc;
@@ -125,7 +125,7 @@ exports.getAllTodaysSessions = async (req, res) => {
       .sort({ loginTime: 1 });
 
     const grouped = sessions.reduce((acc, s) => {
-      const date = dayjs(s.loginTime).format("YYYY-MM-DD");
+      const date = dayjs(s.loginTime).format("DD-MM-YYYY");
       if (!acc[date]) acc[date] = [];
       acc[date].push(s);
       return acc;
@@ -161,7 +161,7 @@ exports.getSessionsByDateRange = async (req, res) => {
       .sort({ loginTime: 1 });
 
     const grouped = sessions.reduce((acc, s) => {
-      const date = dayjs(s.loginTime).format("YYYY-MM-DD");
+      const date = dayjs(s.loginTime).format("DD-MM-YYYY");
       if (!acc[date]) acc[date] = [];
       acc[date].push(s);
       return acc;
