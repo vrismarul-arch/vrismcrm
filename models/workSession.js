@@ -1,4 +1,3 @@
-// File: models/workSession.js
 const mongoose = require("mongoose");
 
 // Define the WorkSession schema
