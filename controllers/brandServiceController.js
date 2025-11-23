@@ -1,6 +1,6 @@
 const BrandService = require('../models/BrandService'); // Updated model
 const { v4: uuidv4 } = require('uuid'); // For generating unique service IDs
-
+//
 // GET all services
 exports.getAllServices = async (req, res) => {
   try {
