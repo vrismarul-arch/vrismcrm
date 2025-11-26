@@ -377,3 +377,37 @@ exports.deleteFollowUp = async (req, res) => {
         res.status(500).json({ message: 'Error deleting follow-up', error: error.message });
     }
 };
+// BULK STATUS UPDATE (Convert Multiple Leads to Customer)
+exports.bulkStatusUpdate = async (req, res) => {
+    try {
+        const { ids, status } = req.body;
+
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({
+                message: "No account IDs provided",
+            });
+        }
+
+        const updated = await BusinessAccount.updateMany(
+            { _id: { $in: ids } },
+            {
+                $set: {
+                    status,
+                    isCustomer: status === "Customer" ? true : false
+                }
+            }
+        );
+
+        return res.status(200).json({
+            message: "Bulk update successful",
+            updatedCount: updated.modifiedCount,
+        });
+
+    } catch (error) {
+        console.error("Bulk status update error:", error);
+        res.status(500).json({
+            message: "Error updating accounts",
+            error: error.message
+        });
+    }
+};

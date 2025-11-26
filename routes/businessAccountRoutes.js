@@ -13,6 +13,8 @@ router.get('/users', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// BULK Status Update Route
+router.put('/bulk-status-update', controller.bulkStatusUpdate);
 
 // Route to get quotations sent
 router.get('/quotations', controller.getQuotationsSent);
