@@ -5,7 +5,7 @@ const {
   stopWorkSession,
   addEod,
   getTodaysSession,
-  getAllTodaysSessions,
+  getAllTodaysSessions,getMonthlyAttendance,
   getSessionsByDateRange,
 } = require("../controllers/workSessionController");
 
@@ -15,5 +15,6 @@ router.post("/eod", addEod);
 router.get("/today/:userId", getTodaysSession);
 router.get("/today", getAllTodaysSessions);
 router.get("/range", getSessionsByDateRange); // ✅ new route for all history
+router.get("/attendance", getMonthlyAttendance);
 
 module.exports = router;

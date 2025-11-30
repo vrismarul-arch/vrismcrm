@@ -1,5 +1,75 @@
 const WorkSession = require("../models/WorkSession");
 const dayjs = require("dayjs");
+const Leave = require("../models/Leave"); 
+exports.getMonthlyAttendance = async (req, res) => {
+  try {
+    const { userId, year, month } = req.query;
+    if (!userId || !year || !month)
+      return res.status(400).json({ message: "userId, year & month required!" });
+
+    const start = dayjs(`${year}-${month}-01`).startOf("month");
+    const end = dayjs(start).endOf("month");
+
+    // 🟢 Present Days (User worked any time that day)
+    const workSessions = await WorkSession.find({
+      userId,
+      loginTime: { $gte: start.toDate(), $lte: end.toDate() },
+    });
+
+    const presentSet = new Set(
+      workSessions.map((s) => dayjs(s.loginTime).format("YYYY-MM-DD"))
+    );
+
+    // 🔵 Approved Leaves Only - Add each date in range
+    const leaves = await Leave.find({
+      userId,
+      status: "Approved",
+      fromDate: { $lte: end.toDate() },
+      toDate: { $gte: start.toDate() },
+    });
+
+    const leaveSet = new Set();
+    leaves.forEach((l) => {
+      let d = dayjs(l.fromDate);
+      while (d.isBefore(l.toDate) || d.isSame(l.toDate)) {
+        const formatted = d.format("YYYY-MM-DD");
+        leaveSet.add(formatted);
+        d = d.add(1, "day");
+      }
+    });
+
+    // 🟣 Working Days of this month = Present OR Leave days only
+    const workingDaysSet = new Set([...presentSet, ...leaveSet]);
+    const workingDays = workingDaysSet.size;
+
+    // ❌ Absent Days = Worked period - present - leave
+    const absentSet = new Set();
+    let d = start;
+    while (d.isBefore(end) || d.isSame(end)) {
+      const formatted = d.format("YYYY-MM-DD");
+      if (!presentSet.has(formatted) && !leaveSet.has(formatted)) {
+        absentSet.add(formatted);
+      }
+      d = d.add(1, "day");
+    }
+
+    res.status(200).json({
+      userId,
+      month: `${month}-${year}`,
+      totalDays: workingDays, // 🔥 FIXED
+      presentDays: presentSet.size,
+      leaveDays: leaveSet.size,
+      absentDays: Math.max(workingDays - presentSet.size - leaveSet.size, 0),
+      presentDates: [...presentSet],
+      leaveDates: [...leaveSet],
+      absentDates: [...absentSet],
+    });
+
+  } catch (err) {
+    console.error("ATTENDANCE ERROR:", err);
+    res.status(500).json({ message: "Attendance fetch failed" });
+  }
+};
 
 // 🟢 Start Work
 exports.startWorkSession = async (req, res) => {
