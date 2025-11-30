@@ -53,7 +53,8 @@ const httpServer = http.createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: ["https://vrismcrm.netlify.app", "http://localhost:5173"],
+    origin: ["https://vrismcrm.netlify.app"],
+    // origin: ["https://vrismcrm.netlify.app", "http://localhost:5173"],
     methods: ["GET", "POST"],
   },
 });
