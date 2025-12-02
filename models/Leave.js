@@ -7,11 +7,13 @@ const leaveSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+
     type: {
       type: String,
       enum: ["Sick", "Casual", "Paid", "Unpaid", "Medical"],
       required: true,
     },
+
     fromDate: { type: Date, required: true },
     toDate: { type: Date, required: true },
     reason: { type: String, required: true },
@@ -22,17 +24,32 @@ const leaveSchema = new mongoose.Schema(
       default: "Pending",
     },
 
+    // 🔥 Role-based approval tracking
     approval: {
-      teamLeader: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
-      admin: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
-      superadmin: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
+      "Team Leader": {
+        type: String,
+        enum: ["Pending", "Approved", "Rejected"],
+        default: "Pending",
+      },
+      "Admin": {
+        type: String,
+        enum: ["Pending", "Approved", "Rejected"],
+        default: "Pending",
+      },
+      "Superadmin": {
+        type: String,
+        enum: ["Pending", "Approved", "Rejected"],
+        default: "Pending",
+      },
     },
-rejectReason: { type: String, default: null },
 
+    rejectReason: String,
+
+    // 🔥 Based on current role reviewer
     currentLevel: {
       type: String,
-      enum: ["teamLeader", "admin", "superadmin", "completed"],
-      default: "teamLeader",
+      enum: ["Team Leader", "Admin", "Superadmin", "Completed"],
+      default: "Team Leader",
     },
   },
   { timestamps: true }

@@ -1,18 +1,43 @@
+// controllers/projectController.js
 const Project = require("../models/Project");
+const { sendAlert } = require("./alertController");
 
 // ➕ Create
 exports.createProject = async (req, res) => {
   try {
     const project = await Project.create(req.body);
 
-    const populatedProject = await Project.findById(project._id)
-      .populate("accountId", "name logo businessName") 
+    let populatedProject = await Project.findById(project._id)
+      .populate("accountId", "name logo businessName")
       .populate("serviceId", "title icon serviceName")
       .populate("members", "name email role")
       .populate("createdBy", "name email role");
 
+    // 🔔 Alert for createdBy
+    if (project.createdBy) {
+      await sendAlert({
+        userId: project.createdBy,
+        message: `Project created: ${project.name || "Untitled Project"}`,
+        type: "Project",
+        refId: project._id,
+      });
+    }
+
+    // 🔔 Alert for all members
+    if (Array.isArray(project.members)) {
+      for (const memberId of project.members) {
+        await sendAlert({
+          userId: memberId,
+          message: `You have been added to project: ${project.name || "Untitled Project"}`,
+          type: "Project",
+          refId: project._id,
+        });
+      }
+    }
+
     res.status(201).json({ success: true, project: populatedProject });
   } catch (err) {
+    console.error("createProject error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -33,13 +58,26 @@ exports.updateProject = async (req, res) => {
       .populate("members", "name email role")
       .populate("createdBy", "name email role");
 
+    // 🔔 Optional: alert all members about update
+    if (Array.isArray(project.members)) {
+      for (const member of project.members) {
+        await sendAlert({
+          userId: member._id,
+          message: `Project updated: ${project.name || "Untitled Project"}`,
+          type: "Project",
+          refId: project._id,
+        });
+      }
+    }
+
     res.json({ success: true, project });
   } catch (err) {
+    console.error("updateProject error:", err);
     res.status(500).json({ message: err.message });
   }
 };
 
-// 📌 Get Projects (Role Filters Working)
+// 📌 Get Projects
 exports.getProjects = async (req, res) => {
   try {
     const { userId, role, status, accountId, serviceId } = req.query;
@@ -59,6 +97,7 @@ exports.getProjects = async (req, res) => {
 
     res.json({ success: true, projects });
   } catch (err) {
+    console.error("getProjects error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -77,6 +116,7 @@ exports.getProjectById = async (req, res) => {
 
     res.json({ success: true, project });
   } catch (err) {
+    console.error("getProjectById error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -91,6 +131,7 @@ exports.deleteProject = async (req, res) => {
 
     res.json({ success: true, message: "Deleted Successfully" });
   } catch (err) {
+    console.error("deleteProject error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -109,6 +150,7 @@ exports.getProjectStats = async (req, res) => {
 
     res.json({ success: true, stats });
   } catch (err) {
+    console.error("getProjectStats error:", err);
     res.status(500).json({ message: err.message });
   }
 };

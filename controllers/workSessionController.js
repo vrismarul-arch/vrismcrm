@@ -1,6 +1,10 @@
+// controllers/workSessionController.js (or whatever name)
 const WorkSession = require("../models/WorkSession");
 const dayjs = require("dayjs");
-const Leave = require("../models/Leave"); 
+const Leave = require("../models/Leave");
+const { sendAlert } = require("./alertController");
+
+// 🟢 Monthly Attendance
 exports.getMonthlyAttendance = async (req, res) => {
   try {
     const { userId, year, month } = req.query;
@@ -10,7 +14,6 @@ exports.getMonthlyAttendance = async (req, res) => {
     const start = dayjs(`${year}-${month}-01`).startOf("month");
     const end = dayjs(start).endOf("month");
 
-    // 🟢 Present Days (User worked any time that day)
     const workSessions = await WorkSession.find({
       userId,
       loginTime: { $gte: start.toDate(), $lte: end.toDate() },
@@ -20,7 +23,6 @@ exports.getMonthlyAttendance = async (req, res) => {
       workSessions.map((s) => dayjs(s.loginTime).format("YYYY-MM-DD"))
     );
 
-    // 🔵 Approved Leaves Only - Add each date in range
     const leaves = await Leave.find({
       userId,
       status: "Approved",
@@ -38,11 +40,9 @@ exports.getMonthlyAttendance = async (req, res) => {
       }
     });
 
-    // 🟣 Working Days of this month = Present OR Leave days only
     const workingDaysSet = new Set([...presentSet, ...leaveSet]);
     const workingDays = workingDaysSet.size;
 
-    // ❌ Absent Days = Worked period - present - leave
     const absentSet = new Set();
     let d = start;
     while (d.isBefore(end) || d.isSame(end)) {
@@ -56,7 +56,7 @@ exports.getMonthlyAttendance = async (req, res) => {
     res.status(200).json({
       userId,
       month: `${month}-${year}`,
-      totalDays: workingDays, // 🔥 FIXED
+      totalDays: workingDays,
       presentDays: presentSet.size,
       leaveDays: leaveSet.size,
       absentDays: Math.max(workingDays - presentSet.size - leaveSet.size, 0),
@@ -64,7 +64,6 @@ exports.getMonthlyAttendance = async (req, res) => {
       leaveDates: [...leaveSet],
       absentDates: [...absentSet],
     });
-
   } catch (err) {
     console.error("ATTENDANCE ERROR:", err);
     res.status(500).json({ message: "Attendance fetch failed" });
@@ -95,6 +94,14 @@ exports.startWorkSession = async (req, res) => {
     });
     await session.save();
 
+    // 🔔 Alert: work started
+    await sendAlert({
+      userId: session.userId,
+      message: `Work started at ${session.loginTime.toLocaleTimeString()}`,
+      type: "Work",
+      refId: session._id,
+    });
+
     res.status(201).json({ session });
   } catch (err) {
     console.error(err);
@@ -114,8 +121,28 @@ exports.stopWorkSession = async (req, res) => {
     const logoutTime = new Date();
     const diffSec = (logoutTime.getTime() - session.loginTime.getTime()) / 1000;
     session.logoutTime = logoutTime;
-    session.totalHours = diffSec / 3600; // seconds → hours
+    session.totalHours = diffSec / 3600;
     await session.save();
+
+    // 🔔 Alert: work stopped
+    await sendAlert({
+      userId: session.userId,
+      message: `Work stopped at ${logoutTime.toLocaleTimeString()}`,
+      type: "Work",
+      refId: session._id,
+    });
+
+    // 🔥 Overtime alert if after 8:00 PM
+    const hour = logoutTime.getHours();
+    const minute = logoutTime.getMinutes();
+    if (hour > 20 || (hour === 20 && minute >= 0)) {
+      await sendAlert({
+        userId: session.userId,
+        message: "You stopped after 8:00 PM. This will be counted as overtime.",
+        type: "Work",
+        refId: session._id,
+      });
+    }
 
     res.status(200).json({ session });
   } catch (err) {
@@ -147,7 +174,7 @@ exports.addEod = async (req, res) => {
   }
 };
 
-// 🟡 Get today's session for one user - grouped like history
+// 🟡 Get today's session for one user
 exports.getTodaysSession = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -181,7 +208,7 @@ exports.getTodaysSession = async (req, res) => {
   }
 };
 
-// 🟣 Get all today's sessions (Admin) - grouped by date like history
+// 🟣 Get all today's sessions (Admin)
 exports.getAllTodaysSessions = async (req, res) => {
   try {
     const todayStart = dayjs().startOf("day").toDate();
@@ -213,12 +240,14 @@ exports.getAllTodaysSessions = async (req, res) => {
   }
 };
 
-// 🔵 ✅ Get all history (by date range, grouped by date)
+// 🔵 Sessions by date range
 exports.getSessionsByDateRange = async (req, res) => {
   try {
     const { start, end } = req.query;
     if (!start || !end)
-      return res.status(400).json({ message: "Start and end dates are required" });
+      return res
+        .status(400)
+        .json({ message: "Start and end dates are required" });
 
     const startDate = new Date(start);
     const endDate = new Date(end);

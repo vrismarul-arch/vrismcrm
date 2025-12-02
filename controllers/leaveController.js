@@ -1,164 +1,184 @@
 const Leave = require("../models/Leave");
 const LeaveBalance = require("../models/LeaveBalance");
+const User = require("../models/User");
+const { sendAlert } = require("./alertController");
 const dayjs = require("dayjs");
 
-// 🟢 Apply Leave
+const fmt = (d) => dayjs(d).format("DD MMM YYYY");
+
+// 🟢 APPLY LEAVE
 exports.applyLeave = async (req, res) => {
   try {
     const { userId, type, fromDate, toDate, reason } = req.body;
-    const diffDays = dayjs(toDate).diff(dayjs(fromDate), "day") + 1;
 
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const diff = dayjs(toDate).diff(dayjs(fromDate), "day") + 1;
     let balance = await LeaveBalance.findOne({ userId });
+
     if (!balance) balance = await LeaveBalance.create({ userId });
 
-    if (balance.balances[type] !== Infinity &&
-        balance.balances[type] < diffDays) {
-      return res.status(400).json({
-        message: `Not enough ${type} leave balance. Remaining: ${balance.balances[type]}`,
-      });
-    }
+    if (balance.balances[type] !== Infinity && balance.balances[type] < diff)
+      return res.status(400).json({ message: "Not enough balance" });
 
-    const leave = await Leave.create({ userId, type, fromDate, toDate, reason });
-    res.status(201).json({ message: "Leave applied successfully", leave });
+    const leave = await Leave.create({
+      userId,
+      type,
+      fromDate,
+      toDate,
+      reason,
+      status: "Pending",
+      currentLevel: "Team Leader",
+    });
+
+    const TL = await User.findOne({ team: user.team, role: "Team Leader" });
+
+    await sendAlert({
+      userId,
+      message: `Leave Requested (${fmt(fromDate)} - ${fmt(toDate)})`,
+      type: "Leave",
+      refId: leave._id,
+    });
+
+    if (TL && TL._id.toString() !== userId)
+      await sendAlert({
+        userId: TL._id,
+        message: `${user.name} requested leave`,
+        type: "Leave",
+        refId: leave._id,
+      });
+
+    global._io.emit("leave_request_received", leave);
+
+    res.status(201).json({ leave });
 
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-
-// 🟡 Get My Leave History
+// 🟡 MY LEAVES
 exports.getMyLeaves = async (req, res) => {
   try {
     const leaves = await Leave.find({ userId: req.params.userId }).sort({ createdAt: -1 });
-    res.status(200).json({ leaves });
+    res.json(leaves);
   } catch {
-    res.status(500).json({ message: "Failed to fetch user leave history" });
+    res.status(500).json({ message: "Error" });
   }
 };
 
-
-// 🔴 Pending Approvals (Role based)
+// 🔴 PENDING (Role Filter)
 exports.getPendingLeaves = async (req, res) => {
   try {
-    const { role } = req.query;
+    const { role, teamId } = req.query;
     let filter = { status: "Pending" };
 
-    if (role === "Team Leader") {
-      filter.currentLevel = "teamLeader";
-    } else if (role === "Admin") {
-      filter.currentLevel = "admin";
-    } else if (role === "Superadmin") {
-      filter.currentLevel = "superadmin";
-    }
+    if (role === "Team Leader") filter = { currentLevel: "Team Leader", "userId.team": teamId };
+    if (role === "Admin") filter = { currentLevel: "Admin" };
+    if (role === "Superadmin") filter = { currentLevel: "Superadmin" };
 
-    const pending = await Leave.find(filter)
-      .populate("userId", "name email role team")
-      .sort({ createdAt: -1 });
-
-    res.status(200).json({ pending });
+    const leaves = await Leave.find(filter).populate("userId", "name team role");
+    res.json(leaves);
 
   } catch {
-    res.status(500).json({ message: "Failed to load pending leaves" });
+    res.status(500).json({ message: "Error" });
   }
 };
 
-
-// 🔵 Admin / TL leave history view (role filtering)
+// 🟣 All Leaves (Role View)
 exports.getAllLeaves = async (req, res) => {
   try {
-    const { role, userId, teamId } = req.query;
-    let filter = {};
-
-    if (role === "Employee") {
-      filter.userId = userId;
-    } else if (role === "Team Leader") {
-      filter["userId.team"] = teamId;
-    }
-
-    const leaves = await Leave.find(filter)
-      .populate("userId", "name role team")
-      .sort({ createdAt: -1 });
-
-    const balances = await LeaveBalance.find();
-
-    const formatted = leaves.map((l) => {
-      const bal = balances.find((b) => b.userId.toString() === l.userId._id.toString());
-      return {
-        ...l._doc,
-        leaveBalance: bal?.balances || {}
-      };
-    });
-
-    res.status(200).json(formatted);
-
+    const leaves = await Leave.find()
+      .sort({ createdAt: -1 })
+      .populate("userId", "name role team");
+    res.json(leaves);
   } catch {
-    res.status(500).json({ message: "Failed to fetch leave history" });
+    res.status(500).json({ message: "Error" });
   }
 };
 
-
-// 🟣 Leave Balance API
+// 🔵 Leave Balance
 exports.getLeaveBalance = async (req, res) => {
   try {
     const bal = await LeaveBalance.findOne({ userId: req.params.userId });
-    res.status(200).json(bal?.balances || {});
+    res.json(bal?.balances || {});
   } catch {
-    res.status(500).json({ message: "Failed to fetch leave balance" });
+    res.status(500).json({ message: "Error" });
   }
 };
 
+// 🟣 Convert Role → Next Stage
+const nextLevel = {
+  "Team Leader": "Admin",
+  "Admin": "Superadmin",
+  "Superadmin": "Completed",
+};
 
-// 🔥 Update Status with Reason + Level Approval
+// 🔥 STATUS UPDATE
 exports.updateLeaveStatus = async (req, res) => {
   try {
     const { role, status, rejectReason } = req.body;
-    const leave = await Leave.findById(req.params.id);
-    if (!leave) return res.status(404).json({ message: "Not found" });
+    const leave = await Leave.findById(req.params.id).populate("userId");
+    if (!leave) return res.status(404).json({ message: "Not Found" });
 
-    const diffDays = dayjs(leave.toDate).diff(dayjs(leave.fromDate), "day") + 1;
+    const employee = leave.userId;
 
-    // ❌ Reject logic with reason
+    let notifyTo = employee._id;
+    let notifyMessage = "";
+
     if (status === "Rejected") {
-      leave.currentLevel = "completed";
       leave.status = "Rejected";
-      leave.rejectReason = rejectReason || "Not Provided";
-
-      if (role === "Team Leader") leave.approval.teamLeader = "Rejected";
-      if (role === "Admin") leave.approval.admin = "Rejected";
-      if (role === "Superadmin") leave.approval.superadmin = "Rejected";
+      leave.rejectReason = rejectReason;
+      leave.currentLevel = "Completed";
+      leave.approval[role] = "Rejected";
+      notifyMessage = `❌ Leave Rejected: ${rejectReason}`;
     }
 
-    // ✅ Approvals Level wise
     if (status === "Approved") {
-      if (role === "Team Leader") {
-        leave.approval.teamLeader = "Approved";
-        leave.currentLevel = "admin";
-      }
+      leave.approval[role] = "Approved";
+      const next = nextLevel[role];
 
-      if (role === "Admin") {
-        leave.approval.admin = "Approved";
-        leave.currentLevel = "superadmin";
-      }
+      if (next !== "Completed") {
+        leave.currentLevel = next;
 
-      if (role === "Superadmin") {
-        leave.approval.superadmin = "Approved";
+        const nextUser = await User.findOne({ role: next });
+        notifyTo = nextUser?._id;
+        notifyMessage = `${role} Approved. Waiting for ${next}`;
+      } else {
         leave.status = "Approved";
-        leave.currentLevel = "completed";
+        leave.currentLevel = "Completed";
 
-        // Deduct leave balance only after final approval
-        let balance = await LeaveBalance.findOne({ userId: leave.userId });
-        if (balance.balances[leave.type] !== Infinity) {
-          balance.balances[leave.type] -= diffDays;
-          await balance.save();
+        const diff = dayjs(leave.toDate).diff(dayjs(leave.fromDate), "day") + 1;
+        let bal = await LeaveBalance.findOne({ userId: leave.userId });
+
+        if (bal.balances[leave.type] !== Infinity) {
+          bal.balances[leave.type] -= diff;
+          await bal.save();
         }
+
+        notifyTo = employee._id;
+        notifyMessage = `🎉 Leave Fully Approved`;
       }
     }
 
     await leave.save();
-    res.status(200).json({ message: `Leave ${status}`, leave });
+
+    await sendAlert({
+      userId: notifyTo,
+      message: notifyMessage,
+      type: "Leave",
+      refId: leave._id,
+    });
+
+    global._io.emit("leave_status_update", {
+      leaveId: leave._id,
+      status,
+    });
+
+    res.json({ leave });
 
   } catch (err) {
-    res.status(500).json({ message: "Status update failed", error: err.message });
+    res.status(500).json({ message: err.message });
   }
 };

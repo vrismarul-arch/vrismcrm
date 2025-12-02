@@ -1,9 +1,8 @@
-// Event Controller (e.g., eventController.js)
+// controllers/eventController.js
 const Event = require("../models/Event");
+const { sendAlert } = require("./alertController");
 
-// ============================
 // CREATE NEW EVENT
-// ============================
 exports.createEvent = async (req, res) => {
   try {
     const eventData = {
@@ -12,16 +11,22 @@ exports.createEvent = async (req, res) => {
       role: req.user.role,
     };
 
-    // ensure empty values become null
     if (!eventData.accountId) eventData.accountId = null;
     if (!eventData.serviceId) eventData.serviceId = null;
 
     let event = await Event.create(eventData);
 
-    // Fetch the event with populated fields before sending it back
     event = await Event.findById(event._id)
-        .populate("accountId", "name logo businessName") // Added businessName
-        .populate("serviceId", "title icon serviceName"); // Added serviceName
+      .populate("accountId", "name logo businessName")
+      .populate("serviceId", "title icon serviceName");
+
+    // 🔔 Alert: event created
+    await sendAlert({
+      userId: req.user._id,
+      message: `Event created: ${event.title || "Untitled Event"}`,
+      type: "Event",
+      refId: event._id,
+    });
 
     return res.status(201).json({ success: true, event });
   } catch (err) {
@@ -29,14 +34,11 @@ exports.createEvent = async (req, res) => {
   }
 };
 
-// ============================
 // GET ALL EVENTS OF LOGGED USER
-// ============================
 exports.getEvents = async (req, res) => {
   try {
     const events = await Event.find({ user: req.user._id })
-      // Include necessary fields for account/service names in population
-      .populate("accountId", "name logo businessName") 
+      .populate("accountId", "name logo businessName")
       .populate("serviceId", "title icon serviceName")
       .sort({ start: 1 });
 
@@ -46,9 +48,7 @@ exports.getEvents = async (req, res) => {
   }
 };
 
-// ============================
 // UPDATE EVENT
-// ============================
 exports.updateEvent = async (req, res) => {
   try {
     const updateData = {
@@ -62,12 +62,21 @@ exports.updateEvent = async (req, res) => {
       updateData,
       { new: true }
     )
-      // Include necessary fields for account/service names in population
       .populate("accountId", "name logo businessName")
       .populate("serviceId", "title icon serviceName");
 
     if (!event)
-      return res.status(404).json({ success: false, message: "Event not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Event not found" });
+
+    // 🔔 Alert: event updated
+    await sendAlert({
+      userId: req.user._id,
+      message: `Event updated: ${event.title || "Untitled Event"}`,
+      type: "Event",
+      refId: event._id,
+    });
 
     return res.json({ success: true, event });
   } catch (err) {
@@ -75,9 +84,7 @@ exports.updateEvent = async (req, res) => {
   }
 };
 
-// ============================
 // DELETE EVENT
-// ============================
 exports.deleteEvent = async (req, res) => {
   try {
     const result = await Event.deleteOne({
@@ -86,7 +93,16 @@ exports.deleteEvent = async (req, res) => {
     });
 
     if (result.deletedCount === 0)
-      return res.status(404).json({ success: false, message: "Event not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Event not found" });
+
+    // 🔔 Alert: event deleted
+    await sendAlert({
+      userId: req.user._id,
+      message: `Event deleted`,
+      type: "Event",
+    });
 
     return res.json({ success: true, message: "Event deleted" });
   } catch (err) {
