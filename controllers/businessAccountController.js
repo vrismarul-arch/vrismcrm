@@ -19,6 +19,14 @@ const populateOptions = [
   // { path: "selectedPlan", select: "name priceMonthly priceYearly" }
 ];
 
+// ✅ Small helper to normalize GST with default 18%
+const getEffectiveGstRate = (gstValue) => {
+  const num = Number(gstValue);
+  // if num is NaN, 0, null, undefined → fallback 18
+  if (!num || num < 0) return 18;
+  return num;
+};
+
 // Helper to calculate price with GST based on service + plan + billingCycle
 const calculateTotalPrice = (service, planId, billingCycle = "Monthly") => {
   if (!service) return 0;
@@ -29,10 +37,9 @@ const calculateTotalPrice = (service, planId, billingCycle = "Monthly") => {
   if (planId && service.plans && service.plans.length > 0) {
     const plan = service.plans.id(planId);
     if (plan) {
-      base =
-        billingCycle === "Yearly"
-          ? plan.priceYearly || 0
-          : plan.priceMonthly || 0;
+      if (billingCycle === "Monthly") base = plan.priceMonthly || 0;
+      else if (billingCycle === "Yearly") base = plan.priceYearly || 0;
+      else if (billingCycle === "One Time") base = plan.priceOneTime || 0; // ⭐ added
     }
   }
 
@@ -41,8 +48,8 @@ const calculateTotalPrice = (service, planId, billingCycle = "Monthly") => {
     base = service.basePrice;
   }
 
-  const gstRate =
-    typeof service.gstRate === "number" ? service.gstRate : 0;
+  // ❗ Use normalized GST with default 18%
+  const gstRate = getEffectiveGstRate(service.gstRate);
 
   const gstAmount = (base * gstRate) / 100;
   const total = base + gstAmount;
@@ -119,12 +126,9 @@ exports.getPaginatedAccounts = async (req, res) => {
     });
   } catch (err) {
     console.error("Error in getPaginatedAccounts:", err);
-    res
-      .status(500)
-      .json({
-        error:
-          err.message || "Server error fetching paginated accounts",
-      });
+    res.status(500).json({
+      error: err.message || "Server error fetching paginated accounts",
+    });
   }
 };
 
@@ -256,9 +260,6 @@ exports.getCustomers = async (req, res) => {
 };
 
 // =========================
-// GET account by ID
-// =========================
-// =========================
 // GET account by ID (Fixed + Normalized Response)
 // =========================
 exports.getAccountById = async (req, res) => {
@@ -338,8 +339,9 @@ exports.create = async (req, res) => {
       const service = await BrandService.findById(data.selectedService);
 
       if (service) {
-        data.gstRate =
-          typeof service.gstRate === "number" ? service.gstRate : 0;
+        // ✅ Store effective GST (service.gstRate or 18%)
+        data.gstRate = getEffectiveGstRate(service.gstRate);
+
         data.totalPrice = calculateTotalPrice(
           service,
           data.selectedPlan,
@@ -361,12 +363,10 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     if (err.code === 11000) {
-      return res
-        .status(409)
-        .json({
-          error: "Business name already exists.",
-          details: err.message,
-        });
+      return res.status(409).json({
+        error: "Business name already exists.",
+        details: err.message,
+      });
     }
     res.status(500).json({ error: err.message });
   }
@@ -398,8 +398,9 @@ exports.update = async (req, res) => {
     if (merged.selectedService) {
       const service = await BrandService.findById(merged.selectedService);
       if (service) {
-        merged.gstRate =
-          typeof service.gstRate === "number" ? service.gstRate : 0;
+        // ✅ Store effective GST again on update
+        merged.gstRate = getEffectiveGstRate(service.gstRate);
+
         merged.totalPrice = calculateTotalPrice(
           service,
           merged.selectedPlan,
@@ -421,12 +422,10 @@ exports.update = async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     if (err.code === 11000) {
-      return res
-        .status(409)
-        .json({
-          error: "Business name already exists.",
-          details: err.message,
-        });
+      return res.status(409).json({
+        error: "Business name already exists.",
+        details: err.message,
+      });
     }
     res.status(500).json({ error: err.message });
   }
@@ -460,16 +459,12 @@ exports.delete = async (req, res) => {
     account.isCustomer = false;
     await account.save();
 
-    res
-      .status(200)
-      .json({ message: "Account status set to Closed", account });
+    res.status(200).json({ message: "Account status set to Closed", account });
   } catch (err) {
     console.error("Error in soft delete:", err);
-    res
-      .status(500)
-      .json({
-        error: err.message || "Server error during status update",
-      });
+    res.status(500).json({
+      error: err.message || "Server error during status update",
+    });
   }
 };
 
@@ -486,19 +481,15 @@ exports.addNote = async (req, res) => {
     }
     account.notes.push({ text, timestamp, author });
     await account.save();
-    res
-      .status(200)
-      .json({
-        message: "Note added successfully",
-        notes: account.notes,
-      });
+    res.status(200).json({
+      message: "Note added successfully",
+      notes: account.notes,
+    });
   } catch (error) {
-    res
-      .status(500)
-      .json({
-        message: "Failed to add note",
-        error: error.message,
-      });
+    res.status(500).json({
+      message: "Failed to add note",
+      error: error.message,
+    });
   }
 };
 
@@ -553,12 +544,10 @@ exports.addFollowUp = async (req, res) => {
     account.followUps.push({ date, note, addedBy, status });
     await account.save();
 
-    res
-      .status(201)
-      .json({
-        message: "Follow-up added successfully",
-        followUps: account.followUps,
-      });
+    res.status(201).json({
+      message: "Follow-up added successfully",
+      followUps: account.followUps,
+    });
   } catch (error) {
     res.status(500).json({
       message: "Failed to add follow-up",
@@ -591,12 +580,10 @@ exports.updateFollowUp = async (req, res) => {
     account.followUps[followUpIndex].status = status;
     await account.save();
 
-    res
-      .status(200)
-      .json({
-        message: "Follow-up updated",
-        followUps: account.followUps,
-      });
+    res.status(200).json({
+      message: "Follow-up updated",
+      followUps: account.followUps,
+    });
   } catch (error) {
     res.status(500).json({
       message: "Error updating follow-up",
@@ -626,12 +613,10 @@ exports.deleteFollowUp = async (req, res) => {
     account.followUps.splice(followUpIndex, 1);
     await account.save();
 
-    res
-      .status(200)
-      .json({
-        message: "Follow-up deleted",
-        followUps: account.followUps,
-      });
+    res.status(200).json({
+      message: "Follow-up deleted",
+      followUps: account.followUps,
+    });
   } catch (error) {
     res.status(500).json({
       message: "Error deleting follow-up",

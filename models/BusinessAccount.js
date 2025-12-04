@@ -101,7 +101,7 @@ const businessAccountSchema = new mongoose.Schema(
 
     billingCycle: {
       type: String,
-      enum: ["Monthly", "Yearly"],
+      enum: ["Monthly", "Yearly","One Time"],
       default: "Monthly",
     },
 

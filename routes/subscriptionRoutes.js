@@ -4,7 +4,7 @@ const {
   getSubscriptionsByBusiness,
   updatePlan,
   cancelSubscription,
-  getAllSubscriptions,
+  getAllSubscriptions,getSubscriptionDetails,
 } = require("../controllers/subscriptionController");
 
 const router = express.Router();
@@ -14,5 +14,6 @@ router.post("/", createSubscription); // Create sub
 router.get("/:id", getSubscriptionsByBusiness); // Client + Admin view by business
 router.put("/upgrade/:subscriptionId", updatePlan); // Change plan
 router.put("/cancel/:id", cancelSubscription); // Cancel plan
+router.get("/details/:id", getSubscriptionDetails);
 
 module.exports = router;

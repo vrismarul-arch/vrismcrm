@@ -16,6 +16,7 @@ const getAlertReceiverUserId = async (businessAccountId) => {
 };
 
 // 📌 Create Subscription
+// 📌 Create Subscription
 exports.createSubscription = async (req, res) => {
   try {
     const {
@@ -38,12 +39,19 @@ exports.createSubscription = async (req, res) => {
     const plan = serviceDoc.plans.id(planId);
     if (!plan) return res.status(404).json({ message: "Plan Not Found" });
 
-    const renewalDate = new Date();
-    renewalDate.setMonth(
-      renewalDate.getMonth() + (billingCycle === "Monthly" ? 1 : 12)
-    );
+    // ⭐ Default GST if not set properly
+    const finalGstRate = Number(gstRate) > 0 ? Number(gstRate) : 18;
 
-    const totalWithGST = amountPaid + (amountPaid * gstRate) / 100;
+    // ⭐ GST Total
+    const totalWithGST = Math.round(amountPaid + (amountPaid * finalGstRate) / 100);
+
+    // ⭐ Renewal Date: Always + 12 Months for Yearly & One Time
+    let renewalDate = new Date();
+    if (billingCycle === "Monthly") {
+      renewalDate.setMonth(renewalDate.getMonth() + 1);
+    } else {
+      renewalDate.setMonth(renewalDate.getMonth() + 12); // Yearly + One Time
+    }
 
     const subscription = await Subscription.create({
       businessAccount,
@@ -52,31 +60,35 @@ exports.createSubscription = async (req, res) => {
       planName: plan.name,
       planPriceMonthly: plan.priceMonthly,
       planPriceYearly: plan.priceYearly,
+      planPriceOneTime: plan.priceOneTime || 0,
       billingCycle,
       amountPaid,
-      gstRate,
+      gstRate: finalGstRate,
       totalWithGST,
       orderId,
       paymentId,
       renewalDate,
+      status: "active", // One Time also active
+      autoRenew: billingCycle !== "One Time", // disable auto-renew for One Time
     });
 
+    // 🔄 Update Business Account
     await BusinessAccount.findByIdAndUpdate(businessAccount, {
       selectedService: service,
       selectedPlan: planId,
       billingCycle,
       totalPrice: totalWithGST,
-      gstRate,
+      gstRate: finalGstRate,
       isCustomer: true,
       status: "Customer",
     });
 
-    // 🔔 Alert to Owner or Client
+    // 🔔 Send Alert
     const receiverId = await getAlertReceiverUserId(businessAccount);
     if (receiverId) {
       await sendAlert({
         userId: receiverId,
-        message: `New Subscription Activated - ${plan.name}`,
+        message: `Subscription Activated - ${plan.name}`,
         type: "Subscription",
         refId: subscription._id,
       });
@@ -88,6 +100,7 @@ exports.createSubscription = async (req, res) => {
     res.status(201).json(created);
 
   } catch (error) {
+    console.error("Create Subscription Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -193,6 +206,44 @@ exports.cancelSubscription = async (req, res) => {
     res.json({ message: "Subscription Cancelled", sub });
 
   } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+exports.getSubscriptionDetails = async (req, res) => {
+  try {
+    const subscription = await Subscription.findById(req.params.id)
+      .populate("service", "serviceName plans")
+      .populate("businessAccount", "businessName contactNumber contactEmail");
+
+    if (!subscription) {
+      return res.status(404).json({ message: "Subscription not found" });
+    }
+
+    // 🟢 Match plan by name (since Subscription stores only snapshot name)
+    let selectedPlan = null;
+    if (subscription.service?.plans) {
+      selectedPlan = subscription.service.plans.find(
+        (p) => p.name === subscription.planName
+      );
+    }
+
+    res.json({
+      _id: subscription._id,
+      businessName: subscription.businessAccount?.businessName,
+      serviceName: subscription.service?.serviceName,
+      billingCycle: subscription.billingCycle,
+      status: subscription.status,
+      renewalDate: subscription.renewalDate,
+      amountPaid: subscription.amountPaid,
+      gstRate: subscription.gstRate,
+      totalWithGST: subscription.totalWithGST,
+      orderId: subscription.orderId,
+      planName: subscription.planName,
+      planFeatures: selectedPlan?.features || [], // 🟢 Now always safe
+    });
+
+  } catch (error) {
+    console.error("Details Fetch Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
