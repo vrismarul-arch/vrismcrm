@@ -1,4 +1,5 @@
 // models/User.js
+
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
@@ -9,20 +10,23 @@ const userSchema = new mongoose.Schema({
 
   role: {
     type: String,
-    enum: ["Superadmin", "Admin", "Team Leader", "Employee"],
+    enum: ["Superadmin", "Admin", "Team Leader", "Employee", "Client"], // <-- Added Client
     default: "Employee",
   },
-fcmToken: { type: String }
-,
+
+  businessAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "BusinessAccount",
+    default: null,
+  }, // <-- Link Client with Business Account
+
+  fcmToken: { type: String },
   status: {
     type: String,
     enum: ["Active", "Inactive"],
     default: "Active",
   },
 
-  /* =========================================
-      PRESENCE FIELDS
-  ========================================== */
   presence: {
     type: String,
     enum: ["online", "offline", "busy", "away", "in_meeting"],
@@ -35,27 +39,9 @@ fcmToken: { type: String }
     default: "offline",
   },
 
-  /* =========================================
-      LAST SEEN + LAST ACTIVE
-  ========================================== */
-  lastSeen: {
-    type: Date,
-    default: null,
-  },
-
-  lastActiveAt: {
-    type: Date,
-    default: Date.now,
-  },
-
-  /* =========================================
-      NEW FIELD — LAST MESSAGE TIME
-      REQUIRED FOR CHAT SORTING
-  ========================================== */
-  lastMessageAt: {
-    type: Date,
-    default: null,
-  },
+  lastSeen: { type: Date, default: null },
+  lastActiveAt: { type: Date, default: Date.now },
+  lastMessageAt: { type: Date, default: null },
 
   department: { type: mongoose.Schema.Types.ObjectId, ref: "Department", default: null },
   team: { type: mongoose.Schema.Types.ObjectId, ref: "Team", default: null },

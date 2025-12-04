@@ -11,6 +11,7 @@ const connectDB = require("./config/db");
 
 // Auto Overtime Cron
 const checkOvertimeAlerts = require("./utils/workOvertimeChecker");
+const checkRenewalAlerts = require("./utils/subscriptionRenewalReminder"); // ⭐ ADDED
 const User = require("./models/User");
 
 const app = express();
@@ -43,13 +44,24 @@ app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/alerts", require("./routes/alertRoutes"));
 app.use("/api/leaves", require("./routes/leaveRoutes"));
 app.use("/api/chat", require("./routes/chatRoutes"));
+app.use("/api/subscriptions", require("./routes/subscriptionRoutes"));
 
 app.get("/api/test", (req, res) => res.json({ message: "Server OK 🚀" }));
 
-/* CRON */
+/* =====================================================
+      CRON JOBS
+===================================================== */
+
+// ⏳ Overtime Check Every 10 Mins
 cron.schedule("*/10 * * * *", () => {
   console.log("CRON --> Checking Overtime...");
   checkOvertimeAlerts();
+});
+
+// 🔥 Subscription Renewal Reminder Everyday Midnight
+cron.schedule("0 0 * * *", () => {
+  console.log("CRON --> Checking Subscription Renewals...");
+  checkRenewalAlerts();
 });
 
 /* SOCKET.IO SERVER */
@@ -97,16 +109,11 @@ io.on("connection", (socket) => {
     io.emit("presence_updated", { userId, presence });
   });
 
-  /* =====================================================
-      ⭐ LEAVE LIVE REFRESH ⭐ FIXED (NO CRASH)
-     ===================================================== */
-  
-  // When leave is applied → refresh approver screens
+  // ⭐ LEAVE LIVE REFRESH
   socket.on("leave_applied", () => {
     io.emit("leave_list_refresh");
   });
 
-  // When TL/Admin/SuperAdmin approves → refresh all
   socket.on("leave_updated", () => {
     io.emit("leave_list_refresh");
   });

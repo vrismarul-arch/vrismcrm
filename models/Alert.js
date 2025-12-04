@@ -11,7 +11,13 @@ const alertSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["Work", "Task", "Project", "Leave", "General"], // ⬅️ ADDED Leave
+      enum: [ "Work",
+        "Task",
+        "Project",
+        "Leave",
+        "General",
+        "Event",
+        "Subscription"], // ⬅️ ADDED Leave
       default: "General"
     },
 

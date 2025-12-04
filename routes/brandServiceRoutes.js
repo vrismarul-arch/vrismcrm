@@ -1,33 +1,17 @@
-// File: routes/brandServiceRoutes.js
-
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const brandServiceController = require('../controllers/brandServiceController'); // updated controller
+const controller = require("../controllers/brandServiceController");
 
-// The full path for these routes is determined by the app.use in server.js: /api/service + router path
+router.get("/", controller.getAllServices);
+router.get("/:id", controller.getServiceById);
+router.post("/", controller.createService);
+router.put("/:id", controller.updateService);
+router.delete("/:id", controller.deleteService);
+router.put('/:id/notes', controller.updateServiceNotes);
 
-// Get all services
-// This route will handle GET requests to: /api/service
-router.get('/', brandServiceController.getAllServices);
-
-// Get one service by ID
-// This route will handle GET requests to: /api/service/:id
-router.get('/:id', brandServiceController.getServiceById);
-
-// Create a new service
-// This route will handle POST requests to: /api/service
-router.post('/', brandServiceController.createService);
-
-// Update a service
-// This route will handle PUT requests to: /api/service/:id
-router.put('/:id', brandServiceController.updateService);
-
-// Delete a service
-// This route will handle DELETE requests to: /api/service/:id
-router.delete('/:id', brandServiceController.deleteService);
-
-// Update service notes
-// This route will handle PUT requests to: /api/service/:id/notes
-router.put('/:id/notes', brandServiceController.updateServiceNotes);
+// PLAN
+router.post("/:id/plans", controller.addPlan);
+router.put("/:serviceId/plans/:planId", controller.updatePlan);
+router.delete("/:serviceId/plans/:planId", controller.deletePlan);
 
 module.exports = router;

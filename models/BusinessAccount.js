@@ -1,70 +1,123 @@
-const mongoose = require('mongoose');
+// models/BusinessAccount.js
+const mongoose = require("mongoose");
 
-// Embedded Schema for Notes
-const noteSchema = new mongoose.Schema({
-    text: { type: String, required: true },
-    timestamp: { type: String, required: true },
-    author: { type: String, required: true }
-}, { _id: false });
+// Notes
+const noteSchema = new mongoose.Schema(
+  {
+    text: String,
+    timestamp: String,
+    author: String,
+  },
+  { _id: false }
+);
 
-// Embedded Schema for Follow-Ups
-const followUpSchema = new mongoose.Schema({
-    date: { type: Date, required: true },
-    note: { type: String, required: true },
-    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    status: { type: String, enum: ['pending', 'completed'], default: 'pending' },
-    createdAt: { type: Date, default: Date.now }
-}, { _id: false });
-
-// Embedded Schema for Additional Contact Persons
+// Contact Person
 const contactPersonSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String },
-    phoneNumber: { type: String },
-}, { _id: true });
+  name: String,
+  email: String,
+  phoneNumber: String,
+});
 
-// Main Business Account Schema
-const businessAccountSchema = new mongoose.Schema({
-    businessName: { type: String, required: true, unique: true },
-    contactName: { type: String, required: true },
-    contactEmail: { type: String },
-    contactNumber: { type: String, required: true },
-    primaryContactPersonName: { type: String },
-    additionalContactPersons: [contactPersonSchema],
-    gstNumber: { type: String },
-    addressLine1: { type: String },
-    addressLine2: { type: String },
-    city: { type: String },
-    state: { type: String },
-    country: { type: String },
-    pincode: { type: Number },
-    website: { type: String },
-    sourceType: { type: String, default: 'Direct' },
-    
-
-    typeOfLead: [{ type: String, enum: ['Fixed client', 'Revenue based client', 'Vrism Product',"others"] }],
+// Follow-ups
+const followUpSchema = new mongoose.Schema(
+  {
+    date: Date,
+    note: String,
+    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     status: {
-        type: String,
-        enum: ['Active', 'Pipeline', 'Quotations', 'Customer', 'Closed', 'TargetLeads'],
-        default: 'Active',
-        required: true,
+      type: String,
+      enum: ["pending", "completed"],
+      default: "pending",
     },
-    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    // **CORRECTED REFERENCE**
-    selectedService: { type: mongoose.Schema.Types.ObjectId, ref: 'BrandService' }, 
+  },
+  { _id: false }
+);
+
+const businessAccountSchema = new mongoose.Schema(
+  {
+    businessName: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+    },
+
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+
+    // optional: for fallback alert receiver
+    selectedUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    contactName: { type: String, required: true },
+    contactEmail: String,
+    contactNumber: { type: String, required: true },
+
+    additionalContactPersons: [contactPersonSchema],
+
+    gstNumber: String,
+    addressLine1: String,
+    addressLine2: String,
+    city: String,
+    state: String,
+    country: String,
+    pincode: Number,
+    website: String,
+
+    typeOfLead: [{ type: String, enum: ['Fixed client', 'Revenue based client', 'Vrism Product',"others"] }],
+
+    status: {
+      type: String,
+      enum: [
+        "Active",
+        "Pipeline",
+        "Quotations",
+        "Customer",
+        "Closed",
+        "TargetLeads",
+      ],
+      default: "Active",
+    },
+
+    sourceType: { type: String, default: "Direct" },
+
+    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+
+    selectedService: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BrandService",
+    },
+
+    selectedPlan: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+
+    billingCycle: {
+      type: String,
+      enum: ["Monthly", "Yearly"],
+      default: "Monthly",
+    },
+
     totalPrice: { type: Number, default: 0 },
+
+    gstRate: { type: Number, default: 18 },
+
     notes: [noteSchema],
     followUps: [followUpSchema],
-    quotations: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Quotation' }],
+
+    quotations: [{ type: mongoose.Schema.Types.ObjectId, ref: "Quotation" }],
+    clients: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
     isCustomer: { type: Boolean, default: false },
-    createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now },
-});
+  },
+  { timestamps: true }
+);
 
-// Pre-save hook to update updatedAt
-businessAccountSchema.pre('save', function(next) {
-    this.updatedAt = new Date();
-    next();
-});
-
-module.exports = mongoose.model('BusinessAccount', businessAccountSchema);
+module.exports = mongoose.model("BusinessAccount", businessAccountSchema);
