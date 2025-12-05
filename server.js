@@ -68,7 +68,7 @@ cron.schedule("0 0 * * *", () => {
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ["https://vrismcrm.netlify.app", "http://localhost:5173"],
+    origin: ["https://vrismcrm.netlify.app", "http://localhost:5173","http://crm.vrismcloud.com"],
     methods: ["GET", "POST"]
   }
 });
