@@ -45,7 +45,7 @@ const businessAccountSchema = new mongoose.Schema(
     owner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
     },
 
     // optional: for fallback alert receiver
