@@ -45,6 +45,7 @@ app.use("/api/alerts", require("./routes/alertRoutes"));
 app.use("/api/leaves", require("./routes/leaveRoutes"));
 app.use("/api/chat", require("./routes/chatRoutes"));
 app.use("/api/subscriptions", require("./routes/subscriptionRoutes"));
+app.use("/api/workflow", require("./routes/workflowRoutes"));
 
 app.get("/api/test", (req, res) => res.json({ message: "Server OK 🚀" }));
 
