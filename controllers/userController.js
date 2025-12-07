@@ -256,7 +256,7 @@ exports.getChatSortedUsers = async (req, res) => {
         lastActiveAt: -1,
       })
       .select(
-        "name email presence lastSeen lastActiveAt lastMessageAt"
+        "name email presence lastSeen lastActiveAt lastMessageAt profileImage"
       ); // already safe
 
     res.json(users);

@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, trim: true, lowercase: true },
   mobile: { type: String, trim: true },
   password: { type: String, required: true },
-
+ profileImage: { type: String, default: null },
   role: {
     type: String,
     enum: ["Superadmin", "Admin", "Team Leader", "Employee", "Client"], // <-- Added Client

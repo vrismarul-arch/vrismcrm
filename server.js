@@ -18,7 +18,7 @@ const app = express();
 
 /* ⭐ CORS */
 app.use(cors({
-  origin: ["https://vrismcrm.netlify.app", "http://localhost:5173","https://crm.vrismcloud.com"],
+  origin: ["https://vrismcrm.netlify.app", "http://localhost:5173"],
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
 }));
@@ -45,6 +45,8 @@ app.use("/api/alerts", require("./routes/alertRoutes"));
 app.use("/api/leaves", require("./routes/leaveRoutes"));
 app.use("/api/chat", require("./routes/chatRoutes"));
 app.use("/api/subscriptions", require("./routes/subscriptionRoutes"));
+app.use("/api/workflow", require("./routes/workflowRoutes"));
+app.use("/api/steps", require("./routes/processStepRoutes"));
 
 app.get("/api/test", (req, res) => res.json({ message: "Server OK 🚀" }));
 
