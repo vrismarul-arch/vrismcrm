@@ -97,7 +97,7 @@ exports.startWorkSession = async (req, res) => {
     // 🔔 Alert: work started
     await sendAlert({
       userId: session.userId,
-      message: `Work started at ${session.loginTime.toLocaleTimeString()}`,
+      message: `Work started sucessfully `,
       type: "Work",
       refId: session._id,
     });
@@ -127,7 +127,7 @@ exports.stopWorkSession = async (req, res) => {
     // 🔔 Alert: work stopped
     await sendAlert({
       userId: session.userId,
-      message: `Work stopped at ${logoutTime.toLocaleTimeString()}`,
+      message: `Work ended successfully`,
       type: "Work",
       refId: session._id,
     });
