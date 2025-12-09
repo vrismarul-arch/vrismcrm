@@ -84,7 +84,7 @@ exports.getActiveBusinesses = async (req, res) => {
     // Ensure BusinessAccount model is imported if this function is used.
     // If not, you might need to import it here or move this function.
     // const BusinessAccount = require('../models/BusinessAccount'); // Uncomment if needed
-    const businesses = await Business.find({ status: 'Active' }); // Find businesses with 'Active' status
+    const businesses = await Business.find({ status: 'Customer' }); // Find businesses with 'Active' status
     res.json(businesses);
   } catch (err) {
     console.error("Error fetching active businesses:", err); // Log the detailed error for debugging

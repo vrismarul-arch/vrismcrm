@@ -16,7 +16,7 @@ router.put('/:id', quotationController.update);
 router.delete('/:id', quotationController.remove);
 
 // GET active businesses (for selection in quotation form, etc.)
-router.get('/leads/active', quotationController.getActiveBusinesses);
+router.get('/leads/customer', quotationController.getActiveBusinesses);
 
 router.get('/business/:id', quotationController.getQuotationsByBusinessId);
 
