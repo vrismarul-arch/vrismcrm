@@ -1,4 +1,3 @@
-// models/Task.js
 const mongoose = require("mongoose");
 
 const taskSchema = new mongoose.Schema(
@@ -6,16 +5,30 @@ const taskSchema = new mongoose.Schema(
     title: { type: String, required: true },
     description: { type: String },
 
-    // NEW FIELDS
+    // Old single reason (keep for backward compatibility)
     reason: { type: String },
-    timeRequired: { type: String },
-    extraAttachment: [{ type: String }],
 
-    // IMPORTANT FLAG
+    // ✅ NEW: Reason / Notes History
+    reasonHistory: [
+      {
+        text: { type: String, required: true },
+        addedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true
+        },
+        createdAt: { type: Date, default: Date.now }
+      }
+    ],
+
+    timeRequired: { type: String },
+
+    extraAttachment: [{ type: String }],
+    attachments: [{ type: String }],
+
     isImportant: { type: Boolean, default: false },
 
-    // TIME FIELD
-    startTime: { type: String }, // Example: "09:30"
+    startTime: { type: String },
 
     assignedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -23,17 +36,20 @@ const taskSchema = new mongoose.Schema(
       required: true
     },
 
-    assignedTo: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true
-    },
+    assignedTo: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true
+      }
+    ],
 
-    // ACCOUNT + SERVICE
-    accountId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "BusinessAccount"
-    },
+    accountId: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "BusinessAccount"
+      }
+    ],
 
     serviceId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -47,9 +63,7 @@ const taskSchema = new mongoose.Schema(
     },
 
     assignedDate: { type: Date, default: Date.now },
-    dueDate: { type: Date },
-
-    attachments: [{ type: String }]
+    dueDate: { type: Date }
   },
   { timestamps: true }
 );
