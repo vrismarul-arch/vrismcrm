@@ -1,16 +1,23 @@
+const mongoose = require("mongoose"); // 🔥 IMPORTANT FIX
 const Task = require("../models/Task");
 const { sendAlert } = require("./alertController");
 
-// ================= POPULATE CONFIG =================
+/* ================= POPULATE CONFIG ================= */
 const populationFields = [
   { path: "assignedTo", select: "name email role profileImage" },
   { path: "assignedBy", select: "name email role profileImage" },
   { path: "accountId", select: "businessName contactName" },
-  { path: "serviceId", select: "serviceName category basePrice accountId" },
-  { path: "reasonHistory.addedBy", select: "name email role profileImage" }
+  {
+    path: "serviceId",
+    select: "serviceName category basePrice accountId"
+  },
+  {
+    path: "reasonHistory.addedBy",
+    select: "name email role profileImage"
+  }
 ];
 
-// ================= GET TASKS =================
+/* ================= GET TASKS ================= */
 exports.getTasks = async (req, res) => {
   try {
     const {
@@ -46,8 +53,10 @@ exports.getTasks = async (req, res) => {
 
     if (startDate || endDate) {
       filter.assignedDate = {};
-      if (startDate) filter.assignedDate.$gte = new Date(startDate);
-      if (endDate) filter.assignedDate.$lte = new Date(endDate);
+      if (startDate)
+        filter.assignedDate.$gte = new Date(startDate);
+      if (endDate)
+        filter.assignedDate.$lte = new Date(endDate);
     }
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -60,18 +69,26 @@ exports.getTasks = async (req, res) => {
 
     const total = await Task.countDocuments(filter);
 
-    res.json({ total, page: Number(page), limit: Number(limit), tasks });
+    res.json({
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      tasks
+    });
   } catch (err) {
     console.error("getTasks error:", err);
     res.status(500).json({ message: "Error fetching tasks." });
   }
 };
 
-// ================= GET SINGLE TASK =================
+/* ================= GET SINGLE TASK ================= */
 exports.getTask = async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id).populate(populationFields);
-    if (!task) return res.status(404).json({ message: "Task not found." });
+    const task = await Task.findById(req.params.id).populate(
+      populationFields
+    );
+    if (!task)
+      return res.status(404).json({ message: "Task not found." });
     res.json(task);
   } catch (err) {
     console.error("getTask error:", err);
@@ -79,19 +96,31 @@ exports.getTask = async (req, res) => {
   }
 };
 
-// ================= CREATE TASK =================
+/* ================= CREATE TASK ================= */
 exports.createTask = async (req, res) => {
   try {
+    if (req.body.assignedTo) {
+      req.body.assignedTo = Array.isArray(req.body.assignedTo)
+        ? req.body.assignedTo.map(
+            (id) => new mongoose.Types.ObjectId(id)
+          )
+        : [new mongoose.Types.ObjectId(req.body.assignedTo)];
+    }
+
     const task = new Task(req.body);
     await task.save();
 
-    const populated = await Task.findById(task._id).populate(populationFields);
+    const populated = await Task.findById(task._id).populate(
+      populationFields
+    );
 
     if (Array.isArray(task.assignedTo)) {
       for (const userId of task.assignedTo) {
         await sendAlert({
           userId,
-          message: `New task assigned: ${task.title || "Untitled Task"}`,
+          message: `New task assigned: ${
+            task.title || "Untitled Task"
+          }`,
           type: "Task",
           refId: task._id
         });
@@ -108,33 +137,54 @@ exports.createTask = async (req, res) => {
   }
 };
 
-// ================= UPDATE TASK =================
+/* ================= UPDATE TASK (🔥 FIXED) ================= */
 exports.updateTask = async (req, res) => {
   try {
-    if (!req.body.assignedBy) {
-      const old = await Task.findById(req.params.id);
-      if (old) req.body.assignedBy = old.assignedBy;
+    const oldTask = await Task.findById(req.params.id);
+    if (!oldTask) {
+      return res.status(404).json({ message: "Task not found." });
     }
 
-    if (!req.body.attachments || req.body.attachments.length === 0) {
-      delete req.body.attachments;
+    const updateData = { ...req.body };
+
+    /* ===== assignedBy safety ===== */
+    if (!updateData.assignedBy) {
+      updateData.assignedBy = oldTask.assignedBy;
+    }
+
+    /* ===== attachments safety ===== */
+    if (
+      !Array.isArray(updateData.attachments) ||
+      updateData.attachments.length === 0
+    ) {
+      delete updateData.attachments;
+    }
+
+    /* ===== 🔥 assignedTo FIX ===== */
+    if (updateData.assignedTo !== undefined) {
+      updateData.assignedTo = Array.isArray(updateData.assignedTo)
+        ? updateData.assignedTo.map(
+            (id) => new mongoose.Types.ObjectId(id)
+          )
+        : [new mongoose.Types.ObjectId(updateData.assignedTo)];
     }
 
     const updated = await Task.findByIdAndUpdate(
       req.params.id,
-      req.body,
-      { new: true, runValidators: true }
+      updateData,
+      {
+        new: true,
+        runValidators: true
+      }
     ).populate(populationFields);
 
-    if (!updated) {
-      return res.status(404).json({ message: "Task not found." });
-    }
-
     if (Array.isArray(updated.assignedTo)) {
-      for (const userId of updated.assignedTo) {
+      for (const user of updated.assignedTo) {
         await sendAlert({
-          userId,
-          message: `Task updated: ${updated.title || "Untitled Task"}`,
+          userId: user._id || user,
+          message: `Task updated: ${
+            updated.title || "Untitled Task"
+          }`,
           type: "Task",
           refId: updated._id
         });
@@ -145,28 +195,33 @@ exports.updateTask = async (req, res) => {
   } catch (err) {
     console.error("updateTask error:", err);
     res.status(400).json({
-      message: "Error updating task",
+      message: "Error updating task.",
       error: err.message
     });
   }
 };
 
-// ================= ADD NOTE (FIXED, NO req.user) =================
+/* ================= ADD TASK NOTE ================= */
 exports.addTaskNote = async (req, res) => {
   try {
     const { text, addedBy } = req.body;
 
     if (!text || !text.trim()) {
-      return res.status(400).json({ message: "Note text required" });
+      return res
+        .status(400)
+        .json({ message: "Note text required" });
     }
 
     let userId = addedBy;
 
     if (!userId) {
-      const oldTask = await Task.findById(req.params.id).select("assignedBy");
-      if (!oldTask) {
-        return res.status(404).json({ message: "Task not found." });
-      }
+      const oldTask = await Task.findById(req.params.id).select(
+        "assignedBy"
+      );
+      if (!oldTask)
+        return res
+          .status(404)
+          .json({ message: "Task not found." });
       userId = oldTask.assignedBy;
     }
 
@@ -190,7 +245,7 @@ exports.addTaskNote = async (req, res) => {
   }
 };
 
-// ================= DELETE TASK =================
+/* ================= DELETE TASK ================= */
 exports.deleteTask = async (req, res) => {
   try {
     const task = await Task.findByIdAndDelete(req.params.id);
