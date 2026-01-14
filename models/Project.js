@@ -20,7 +20,7 @@ const stepSchema = new mongoose.Schema({
     enum: ["Pending", "In Progress", "Review", "Completed", "On Hold"],
     default: "Pending",
   },
-  order: { type: Number, default: 1 }
+  order: { type: Number, default: 1 },dueDate: { type: Date }
 });
 
 // Main Project Schema
