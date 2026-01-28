@@ -127,7 +127,7 @@ io.on("connection", (socket) => {
 
 /* START SERVER */
 connectDB().then(() => {
-  const PORT = process.env.PORT || 5001;
+  const PORT = process.env.PORT || 1001;
   httpServer.listen(PORT, () =>
     console.log(`🔥 API + SOCKET running on PORT ${PORT}`)
   );
