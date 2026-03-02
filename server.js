@@ -47,7 +47,7 @@ app.use("/api/chat", require("./routes/chatRoutes"));
 app.use("/api/subscriptions", require("./routes/subscriptionRoutes"));
 app.use("/api/workflow", require("./routes/workflowRoutes"));
 app.use("/api/steps", require("./routes/processStepRoutes"));
-
+app.use('/api/monthly-content', require("./routes/monthlyContentRoutes"));
 app.get("/api/test", (req, res) => res.json({ message: "Server OK 🚀" }));
 //
 /* =====================================================
