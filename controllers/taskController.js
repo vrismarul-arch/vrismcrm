@@ -6,15 +6,17 @@ const { sendAlert } = require("./alertController");
 const populationFields = [
   { path: "assignedTo", select: "name email role profileImage" },
   { path: "assignedBy", select: "name email role profileImage" },
-  { path: "accountId", select: "businessName contactName" },
-  {
-    path: "serviceId",
-    select: "serviceName category basePrice accountId"
+  { path: "accountId", select: "businessName contactName email phone gst" },
+  { 
+    path: "serviceId", 
+    select: "serviceName category basePrice accountId description",
+    populate: { path: "accountId", select: "businessName" }
   },
   {
     path: "reasonHistory.addedBy",
     select: "name email role profileImage"
-  }
+  },
+  { path: "monthlyClientId", select: "businessName staticPosts deliveredStatic reels deliveredReels clientId" }
 ];
 
 /* ================= GET TASKS ================= */
@@ -26,6 +28,7 @@ exports.getTasks = async (req, res) => {
       status,
       accountId,
       serviceId,
+      monthlyClientId,
       search,
       startDate,
       endDate,
@@ -38,8 +41,33 @@ exports.getTasks = async (req, res) => {
     if (assignedTo) filter.assignedTo = { $in: [assignedTo] };
     if (assignedBy) filter.assignedBy = assignedBy;
     if (status) filter.status = status;
-    if (accountId) filter.accountId = { $in: [accountId] };
-    if (serviceId) filter.serviceId = { $in: [serviceId] };
+    
+    // Handle accountId as ObjectId or string
+    if (accountId) {
+      try {
+        filter.accountId = new mongoose.Types.ObjectId(accountId);
+      } catch {
+        filter.accountId = accountId;
+      }
+    }
+    
+    // Handle serviceId as ObjectId or string
+    if (serviceId) {
+      try {
+        filter.serviceId = new mongoose.Types.ObjectId(serviceId);
+      } catch {
+        filter.serviceId = serviceId;
+      }
+    }
+    
+    // Handle monthlyClientId as ObjectId or string
+    if (monthlyClientId) {
+      try {
+        filter.monthlyClientId = new mongoose.Types.ObjectId(monthlyClientId);
+      } catch {
+        filter.monthlyClientId = monthlyClientId;
+      }
+    }
 
     if (search) {
       filter.$or = [
@@ -99,6 +127,7 @@ exports.getTask = async (req, res) => {
 /* ================= CREATE TASK ================= */
 exports.createTask = async (req, res) => {
   try {
+    // Handle assignedTo conversion
     if (req.body.assignedTo) {
       req.body.assignedTo = Array.isArray(req.body.assignedTo)
         ? req.body.assignedTo.map(
@@ -107,14 +136,62 @@ exports.createTask = async (req, res) => {
         : [new mongoose.Types.ObjectId(req.body.assignedTo)];
     }
 
-    const task = new Task(req.body);
+    // Handle accountId conversion
+    if (req.body.accountId && req.body.accountId !== 'null' && req.body.accountId !== 'undefined') {
+      try {
+        req.body.accountId = new mongoose.Types.ObjectId(req.body.accountId);
+      } catch (err) {
+        console.warn("Invalid accountId format:", req.body.accountId);
+        req.body.accountId = null;
+      }
+    } else {
+      req.body.accountId = null;
+    }
+
+    // Handle serviceId conversion
+    if (req.body.serviceId && req.body.serviceId !== 'null' && req.body.serviceId !== 'undefined') {
+      try {
+        req.body.serviceId = new mongoose.Types.ObjectId(req.body.serviceId);
+      } catch (err) {
+        console.warn("Invalid serviceId format:", req.body.serviceId);
+        req.body.serviceId = null;
+      }
+    } else {
+      req.body.serviceId = null;
+    }
+
+    // Handle monthlyClientId conversion
+    if (req.body.monthlyClientId && req.body.monthlyClientId !== 'null' && req.body.monthlyClientId !== 'undefined') {
+      try {
+        req.body.monthlyClientId = new mongoose.Types.ObjectId(req.body.monthlyClientId);
+      } catch (err) {
+        console.warn("Invalid monthlyClientId format:", req.body.monthlyClientId);
+        req.body.monthlyClientId = null;
+      }
+    } else {
+      req.body.monthlyClientId = null;
+    }
+
+    // Ensure assignedBy is set
+    if (!req.body.assignedBy) {
+      return res.status(400).json({ message: "assignedBy is required" });
+    }
+
+    // Create task with processed data
+    const taskData = {
+      ...req.body,
+      assignedBy: new mongoose.Types.ObjectId(req.body.assignedBy)
+    };
+
+    const task = new Task(taskData);
     await task.save();
 
     const populated = await Task.findById(task._id).populate(
       populationFields
     );
 
-    if (Array.isArray(task.assignedTo)) {
+    // Send alerts to assigned users
+    if (Array.isArray(task.assignedTo) && task.assignedTo.length > 0) {
       for (const userId of task.assignedTo) {
         await sendAlert({
           userId,
@@ -137,7 +214,7 @@ exports.createTask = async (req, res) => {
   }
 };
 
-/* ================= UPDATE TASK (🔥 FIXED) ================= */
+/* ================= UPDATE TASK (🔥 FIXED WITH ACCOUNT & SERVICE) ================= */
 exports.updateTask = async (req, res) => {
   try {
     const oldTask = await Task.findById(req.params.id);
@@ -150,6 +227,12 @@ exports.updateTask = async (req, res) => {
     /* ===== assignedBy safety ===== */
     if (!updateData.assignedBy) {
       updateData.assignedBy = oldTask.assignedBy;
+    } else {
+      try {
+        updateData.assignedBy = new mongoose.Types.ObjectId(updateData.assignedBy);
+      } catch {
+        updateData.assignedBy = oldTask.assignedBy;
+      }
     }
 
     /* ===== attachments safety ===== */
@@ -160,14 +243,68 @@ exports.updateTask = async (req, res) => {
       delete updateData.attachments;
     }
 
-    /* ===== 🔥 assignedTo FIX ===== */
+    /* ===== assignedTo FIX ===== */
     if (updateData.assignedTo !== undefined) {
-      updateData.assignedTo = Array.isArray(updateData.assignedTo)
-        ? updateData.assignedTo.map(
-            (id) => new mongoose.Types.ObjectId(id)
-          )
-        : [new mongoose.Types.ObjectId(updateData.assignedTo)];
+      if (Array.isArray(updateData.assignedTo) && updateData.assignedTo.length > 0) {
+        updateData.assignedTo = updateData.assignedTo
+          .filter(id => id && id !== 'null' && id !== 'undefined')
+          .map(id => {
+            try {
+              return new mongoose.Types.ObjectId(id);
+            } catch {
+              return null;
+            }
+          })
+          .filter(id => id !== null);
+      } else {
+        updateData.assignedTo = [];
+      }
     }
+
+    /* ===== accountId FIX ===== */
+    if (updateData.accountId !== undefined) {
+      if (updateData.accountId && updateData.accountId !== 'null' && updateData.accountId !== 'undefined') {
+        try {
+          updateData.accountId = new mongoose.Types.ObjectId(updateData.accountId);
+        } catch (err) {
+          console.warn("Invalid accountId format in update:", updateData.accountId);
+          updateData.accountId = null;
+        }
+      } else {
+        updateData.accountId = null;
+      }
+    }
+
+    /* ===== serviceId FIX ===== */
+    if (updateData.serviceId !== undefined) {
+      if (updateData.serviceId && updateData.serviceId !== 'null' && updateData.serviceId !== 'undefined') {
+        try {
+          updateData.serviceId = new mongoose.Types.ObjectId(updateData.serviceId);
+        } catch (err) {
+          console.warn("Invalid serviceId format in update:", updateData.serviceId);
+          updateData.serviceId = null;
+        }
+      } else {
+        updateData.serviceId = null;
+      }
+    }
+
+    /* ===== monthlyClientId FIX ===== */
+    if (updateData.monthlyClientId !== undefined) {
+      if (updateData.monthlyClientId && updateData.monthlyClientId !== 'null' && updateData.monthlyClientId !== 'undefined') {
+        try {
+          updateData.monthlyClientId = new mongoose.Types.ObjectId(updateData.monthlyClientId);
+        } catch (err) {
+          console.warn("Invalid monthlyClientId format in update:", updateData.monthlyClientId);
+          updateData.monthlyClientId = null;
+        }
+      } else {
+        updateData.monthlyClientId = null;
+      }
+    }
+
+    // Log the update data for debugging
+    console.log("Updating task with data:", JSON.stringify(updateData, null, 2));
 
     const updated = await Task.findByIdAndUpdate(
       req.params.id,
@@ -178,7 +315,8 @@ exports.updateTask = async (req, res) => {
       }
     ).populate(populationFields);
 
-    if (Array.isArray(updated.assignedTo)) {
+    // Send alerts to assigned users
+    if (Array.isArray(updated.assignedTo) && updated.assignedTo.length > 0) {
       for (const user of updated.assignedTo) {
         await sendAlert({
           userId: user._id || user,
@@ -225,13 +363,21 @@ exports.addTaskNote = async (req, res) => {
       userId = oldTask.assignedBy;
     }
 
+    // Convert userId to ObjectId if it's a string
+    try {
+      userId = new mongoose.Types.ObjectId(userId);
+    } catch {
+      // Keep as is if conversion fails
+    }
+
     const task = await Task.findByIdAndUpdate(
       req.params.id,
       {
         $push: {
           reasonHistory: {
             text,
-            addedBy: userId
+            addedBy: userId,
+            createdAt: new Date()
           }
         }
       },
@@ -258,3 +404,123 @@ exports.deleteTask = async (req, res) => {
     res.status(500).json({ message: "Error deleting task." });
   }
 };
+
+/* ================= GET TASKS BY ACCOUNT ================= */
+exports.getTasksByAccount = async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    
+    if (!accountId) {
+      return res.status(400).json({ message: "Account ID required" });
+    }
+
+    let objectId;
+    try {
+      objectId = new mongoose.Types.ObjectId(accountId);
+    } catch {
+      return res.status(400).json({ message: "Invalid account ID format" });
+    }
+
+    const tasks = await Task.find({ 
+      $or: [
+        { accountId: objectId },
+        { "serviceId.accountId": objectId }
+      ]
+    })
+      .populate(populationFields)
+      .sort({ createdAt: -1 });
+
+    res.json(tasks);
+  } catch (err) {
+    console.error("getTasksByAccount error:", err);
+    res.status(500).json({ message: "Error fetching tasks by account" });
+  }
+};
+
+/* ================= GET TASKS BY SERVICE ================= */
+exports.getTasksByService = async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    
+    if (!serviceId) {
+      return res.status(400).json({ message: "Service ID required" });
+    }
+
+    let objectId;
+    try {
+      objectId = new mongoose.Types.ObjectId(serviceId);
+    } catch {
+      return res.status(400).json({ message: "Invalid service ID format" });
+    }
+
+    const tasks = await Task.find({ serviceId: objectId })
+      .populate(populationFields)
+      .sort({ createdAt: -1 });
+
+    res.json(tasks);
+  } catch (err) {
+    console.error("getTasksByService error:", err);
+    res.status(500).json({ message: "Error fetching tasks by service" });
+  }
+};
+
+/* ================= BULK UPDATE TASKS ================= */
+exports.bulkUpdateTasks = async (req, res) => {
+  try {
+    const { taskIds, updateData } = req.body;
+
+    if (!Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ message: "Task IDs array required" });
+    }
+
+    // Convert string IDs to ObjectIds
+    const objectIds = taskIds
+      .map(id => {
+        try {
+          return new mongoose.Types.ObjectId(id);
+        } catch {
+          return null;
+        }
+      })
+      .filter(id => id !== null);
+
+    if (objectIds.length === 0) {
+      return res.status(400).json({ message: "No valid task IDs provided" });
+    }
+
+    // Process update data similar to updateTask
+    const processedUpdate = { ...updateData };
+    
+    // Handle special fields if present
+    if (processedUpdate.accountId) {
+      try {
+        processedUpdate.accountId = new mongoose.Types.ObjectId(processedUpdate.accountId);
+      } catch {
+        delete processedUpdate.accountId;
+      }
+    }
+    
+    if (processedUpdate.serviceId) {
+      try {
+        processedUpdate.serviceId = new mongoose.Types.ObjectId(processedUpdate.serviceId);
+      } catch {
+        delete processedUpdate.serviceId;
+      }
+    }
+
+    const result = await Task.updateMany(
+      { _id: { $in: objectIds } },
+      { $set: processedUpdate },
+      { runValidators: true }
+    );
+
+    res.json({
+      message: "Tasks updated successfully",
+      modifiedCount: result.modifiedCount,
+      matchedCount: result.matchedCount
+    });
+  } catch (err) {
+    console.error("bulkUpdateTasks error:", err);
+    res.status(500).json({ message: "Error bulk updating tasks" });
+  }
+};  
