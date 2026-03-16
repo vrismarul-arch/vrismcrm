@@ -1,4 +1,7 @@
 const mongoose = require("mongoose");
+// 🔥 CRITICAL FIX - Disable strict populate globally
+mongoose.set('strictPopulate', false);
+
 const Task = require("../models/Task");
 const { sendAlert } = require("./alertController");
 
@@ -15,8 +18,7 @@ const populationFields = [
   {
     path: "reasonHistory.addedBy",
     select: "name email role profileImage"
-  },
-  { path: "monthlyClientId", select: "businessName staticPosts deliveredStatic reels deliveredReels clientId" }
+  }
 ];
 
 /* ================= HELPER FUNCTION TO SAFELY CONVERT ID ================= */
@@ -55,7 +57,6 @@ exports.getTasks = async (req, res) => {
       status,
       accountId,
       serviceId,
-      monthlyClientId,
       search,
       startDate,
       endDate,
@@ -100,14 +101,6 @@ exports.getTasks = async (req, res) => {
       const serviceObjectId = safeObjectId(serviceId);
       if (serviceObjectId) {
         filter.serviceId = serviceObjectId;
-      }
-    }
-    
-    // Handle monthlyClientId
-    if (monthlyClientId && monthlyClientId !== 'undefined' && monthlyClientId !== 'null' && monthlyClientId !== '') {
-      const monthlyClientObjectId = safeObjectId(monthlyClientId);
-      if (monthlyClientObjectId) {
-        filter.monthlyClientId = monthlyClientObjectId;
       }
     }
 
@@ -212,6 +205,9 @@ exports.createTask = async (req, res) => {
 
     const taskData = { ...req.body };
 
+    // Remove any monthlyClientId field if it exists in the request
+    delete taskData.monthlyClientId;
+
     // Handle assignedTo array
     if (taskData.assignedTo) {
       taskData.assignedTo = safeObjectIdArray(taskData.assignedTo);
@@ -239,9 +235,6 @@ exports.createTask = async (req, res) => {
     // Handle serviceId
     taskData.serviceId = safeObjectId(taskData.serviceId);
 
-    // Handle monthlyClientId
-    taskData.monthlyClientId = safeObjectId(taskData.monthlyClientId);
-
     // Ensure dates are valid
     if (taskData.dueDate && taskData.dueDate !== 'null' && taskData.dueDate !== 'undefined') {
       taskData.dueDate = new Date(taskData.dueDate);
@@ -259,7 +252,7 @@ exports.createTask = async (req, res) => {
     const task = new Task(taskData);
     await task.save();
 
-    // Populate for response
+    // Populate for response - with strictPopulate disabled, this will work
     const populated = await Task.findById(task._id).populate(populationFields);
 
     // Send alerts to assigned users
@@ -315,6 +308,9 @@ exports.updateTask = async (req, res) => {
 
     const updateData = { ...req.body };
 
+    // Remove monthlyClientId if it exists
+    delete updateData.monthlyClientId;
+
     // Handle assignedTo array
     if (updateData.assignedTo !== undefined) {
       updateData.assignedTo = safeObjectIdArray(updateData.assignedTo);
@@ -333,11 +329,6 @@ exports.updateTask = async (req, res) => {
     // Handle serviceId
     if (updateData.serviceId !== undefined) {
       updateData.serviceId = safeObjectId(updateData.serviceId, oldTask.serviceId);
-    }
-
-    // Handle monthlyClientId
-    if (updateData.monthlyClientId !== undefined) {
-      updateData.monthlyClientId = safeObjectId(updateData.monthlyClientId, oldTask.monthlyClientId);
     }
 
     // Handle dates
@@ -574,6 +565,9 @@ exports.bulkUpdateTasks = async (req, res) => {
 
     // Process update data
     const processedUpdate = { ...updateData };
+    
+    // Remove monthlyClientId if it exists
+    delete processedUpdate.monthlyClientId;
     
     // Handle special fields
     if (processedUpdate.status) {
