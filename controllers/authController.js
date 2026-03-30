@@ -1,44 +1,65 @@
-const User = require("../models/User"); // Assumes a Mongoose User model
+const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-//
+
 exports.login = async (req, res) => {
-  // 1. Get credentials from request body
-  const { username, password } = req.body;
-
   try {
-    // 2. Find user by email (used as username)
-    const user = await User.findOne({ email: username });
+    console.log("LOGIN BODY:", req.body); // 🔍 debug once
 
-    if (!user) {
-      return res.status(401).json({ error: "Invalid credentials" }); // User not found
+    // ✅ Accept BOTH email & username (PRO FLEXIBLE FIX)
+    const { email, username, password } = req.body;
+    const loginId = email || username;
+
+    // ✅ Validation
+    if (!loginId || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email/Username and password are required"
+      });
     }
 
-    // 3. Compare provided plain-text password with stored hash
-    //    (This is the key step using bcrypt)
+    // ✅ Find user
+    const user = await User.findOne({ email: loginId });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+
+    // ✅ Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ error: "Invalid credentials" }); // Password mismatch
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials"
+      });
     }
 
-    // 4. Generate JWT on successful match
+    // ✅ Generate token
     const token = jwt.sign(
       { userId: user._id, role: user.role },
-      process.env.JWT_SECRET, // JWT_SECRET should be defined in environment variables
-      { expiresIn: "2d" } // Token expires in 2 days
+      process.env.JWT_SECRET,
+      { expiresIn: "2d" }
     );
 
-    // 5. Prepare user object for client (remove password hash)
+    // ✅ Remove password
     const userObj = user.toObject();
     delete userObj.password;
 
-    // 6. Send token and user data
-    res.json({
+    // ✅ Response
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
       token,
-      user: userObj,
+      user: userObj
     });
+
   } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({ error: "Login failed" });
+    console.error("LOGIN ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
   }
 };
