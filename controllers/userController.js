@@ -327,3 +327,312 @@ exports.updateStatus = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+// controllers/userController.js (Add these new functions)
+
+/**
+ * 🆕 Get users with birthdays today
+ */
+exports.getBirthdayUsers = async (req, res) => {
+  try {
+    const today = new Date();
+    const todayMonth = today.getMonth();
+    const todayDay = today.getDate();
+
+    const users = await User.find({
+      dob: { $ne: null },
+      status: "Active"
+    })
+      .populate("department", "name")
+      .populate("team", "name")
+      .select("name email profileImage dob role team department");
+
+    const birthdayUsers = users.filter(user => {
+      if (!user.dob) return false;
+      const birthDate = new Date(user.dob);
+      return birthDate.getMonth() === todayMonth && 
+             birthDate.getDate() === todayDay;
+    });
+
+    // Add age calculation for each user
+    const birthdayUsersWithAge = birthdayUsers.map(user => {
+      const userObj = user.toObject();
+      const age = calculateAge(user.dob);
+      return { ...userObj, age };
+    });
+
+    res.json({
+      success: true,
+      count: birthdayUsersWithAge.length,
+      users: birthdayUsersWithAge,
+      message: birthdayUsersWithAge.length > 0 ? "🎂 Happy Birthday!" : "No birthdays today",
+      date: today.toISOString().split('T')[0]
+    });
+  } catch (err) {
+    console.error("Error fetching birthday users:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * 🆕 Get upcoming birthdays (next 7 days)
+ */
+exports.getUpcomingBirthdays = async (req, res) => {
+  try {
+    const { days = 7 } = req.query; // Default to 7 days
+    const today = new Date();
+    const futureDate = new Date();
+    futureDate.setDate(today.getDate() + parseInt(days));
+
+    const users = await User.find({
+      dob: { $ne: null },
+      status: "Active"
+    })
+      .populate("department", "name")
+      .populate("team", "name")
+      .select("name email profileImage dob role team department");
+
+    const upcomingBirthdays = users.filter(user => {
+      if (!user.dob) return false;
+      const birthDate = new Date(user.dob);
+      const thisYearBirthday = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+      
+      // If birthday already passed this year, check for next year
+      if (thisYearBirthday < today) {
+        thisYearBirthday.setFullYear(today.getFullYear() + 1);
+      }
+      
+      return thisYearBirthday >= today && thisYearBirthday <= futureDate;
+    }).sort((a, b) => {
+      const aDate = new Date(today.getFullYear(), new Date(a.dob).getMonth(), new Date(a.dob).getDate());
+      const bDate = new Date(today.getFullYear(), new Date(b.dob).getMonth(), new Date(b.dob).getDate());
+      
+      // Adjust for next year if birthday passed
+      if (aDate < today) aDate.setFullYear(today.getFullYear() + 1);
+      if (bDate < today) bDate.setFullYear(today.getFullYear() + 1);
+      
+      return aDate - bDate;
+    });
+
+    // Add days until birthday and age
+    const upcomingBirthdaysWithDetails = upcomingBirthdays.map(user => {
+      const userObj = user.toObject();
+      const birthDate = new Date(user.dob);
+      const thisYearBirthday = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+      
+      if (thisYearBirthday < today) {
+        thisYearBirthday.setFullYear(today.getFullYear() + 1);
+      }
+      
+      const daysUntil = Math.ceil((thisYearBirthday - today) / (1000 * 60 * 60 * 24));
+      const age = calculateAge(user.dob);
+      const turningAge = age + (thisYearBirthday.getFullYear() - new Date(user.dob).getFullYear());
+      
+      return { 
+        ...userObj, 
+        age,
+        turningAge,
+        daysUntil,
+        birthdayDate: thisYearBirthday.toISOString().split('T')[0]
+      };
+    });
+
+    res.json({
+      success: true,
+      count: upcomingBirthdaysWithDetails.length,
+      daysRange: parseInt(days),
+      users: upcomingBirthdaysWithDetails,
+      message: upcomingBirthdaysWithDetails.length > 0 ? `${upcomingBirthdaysWithDetails.length} upcoming birthdays` : "No upcoming birthdays"
+    });
+  } catch (err) {
+    console.error("Error fetching upcoming birthdays:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * 🆕 Get users by age range
+ */
+exports.getUsersByAgeRange = async (req, res) => {
+  try {
+    const { minAge = 18, maxAge = 100 } = req.query;
+    
+    const currentYear = new Date().getFullYear();
+    const minBirthYear = currentYear - maxAge;
+    const maxBirthYear = currentYear - minAge;
+    
+    const users = await User.find({
+      dob: { 
+        $ne: null,
+        $gte: new Date(minBirthYear, 0, 1),
+        $lte: new Date(maxBirthYear, 11, 31)
+      },
+      status: "Active"
+    })
+      .populate("department", "name")
+      .populate("team", "name")
+      .select("name email profileImage dob role team department");
+
+    const usersWithAge = users.map(user => {
+      const userObj = user.toObject();
+      userObj.age = calculateAge(user.dob);
+      return userObj;
+    }).sort((a, b) => a.age - b.age);
+
+    res.json({
+      success: true,
+      count: usersWithAge.length,
+      ageRange: { min: parseInt(minAge), max: parseInt(maxAge) },
+      users: usersWithAge
+    });
+  } catch (err) {
+    console.error("Error fetching users by age range:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * 🆕 Get birthday statistics
+ */
+exports.getBirthdayStats = async (req, res) => {
+  try {
+    const { year = new Date().getFullYear() } = req.query;
+    
+    const users = await User.find({
+      dob: { $ne: null },
+      status: "Active"
+    }).select("dob name email role");
+
+    // Group birthdays by month
+    const monthlyStats = {};
+    const monthNames = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    
+    monthNames.forEach(month => {
+      monthlyStats[month] = [];
+    });
+
+    users.forEach(user => {
+      const birthDate = new Date(user.dob);
+      const monthName = monthNames[birthDate.getMonth()];
+      const age = calculateAge(user.dob);
+      
+      monthlyStats[monthName].push({
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        day: birthDate.getDate(),
+        age
+      });
+    });
+
+    // Sort each month's birthdays by day
+    Object.keys(monthlyStats).forEach(month => {
+      monthlyStats[month].sort((a, b) => a.day - b.day);
+    });
+
+    const totalBirthdays = users.length;
+    const birthdaysThisMonth = monthlyStats[monthNames[new Date().getMonth()]].length;
+    
+    // Calculate average age
+    const totalAge = users.reduce((sum, user) => sum + calculateAge(user.dob), 0);
+    const averageAge = totalBirthdays > 0 ? (totalAge / totalBirthdays).toFixed(1) : 0;
+
+    res.json({
+      success: true,
+      year,
+      totalUsers: totalBirthdays,
+      birthdaysThisMonth,
+      averageAge: parseFloat(averageAge),
+      monthlyBreakdown: monthlyStats,
+      monthNames
+    });
+  } catch (err) {
+    console.error("Error fetching birthday stats:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * 🆕 Check if today is specific user's birthday
+ */
+exports.checkUserBirthday = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await User.findById(userId).select("name email dob profileImage role");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    
+    if (!user.dob) {
+      return res.json({
+        success: true,
+        isBirthday: false,
+        message: "User has not set date of birth",
+        user: { name: user.name, email: user.email, dob: null }
+      });
+    }
+    
+    const today = new Date();
+    const birthDate = new Date(user.dob);
+    const isBirthday = today.getDate() === birthDate.getDate() && 
+                       today.getMonth() === birthDate.getMonth();
+    
+    const age = calculateAge(user.dob);
+    const nextBirthday = isBirthday ? null : getNextBirthday(user.dob);
+    
+    res.json({
+      success: true,
+      isBirthday,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        profileImage: user.profileImage,
+        role: user.role,
+        dob: user.dob,
+        age
+      },
+      nextBirthday,
+      message: isBirthday ? `🎉 Happy Birthday ${user.name}! 🎂` : `${user.name}'s birthday is not today`
+    });
+  } catch (err) {
+    console.error("Error checking user birthday:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Helper function to calculate age
+const calculateAge = (dob) => {
+  if (!dob) return null;
+  const today = new Date();
+  const birthDate = new Date(dob);
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+};
+
+// Helper function to get next birthday
+const getNextBirthday = (dob) => {
+  if (!dob) return null;
+  const today = new Date();
+  const birthDate = new Date(dob);
+  const nextBirthday = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+  
+  if (nextBirthday < today) {
+    nextBirthday.setFullYear(today.getFullYear() + 1);
+  }
+  
+  const daysUntil = Math.ceil((nextBirthday - today) / (1000 * 60 * 60 * 24));
+  
+  return {
+    date: nextBirthday.toISOString().split('T')[0],
+    daysUntil,
+    willTurn: calculateAge(dob) + 1
+  };
+};

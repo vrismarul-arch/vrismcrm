@@ -19,4 +19,11 @@ router.post("/status/update", userController.updateStatus);
 // 🔥 Chat Sorted User List (WhatsApp Style Sorting)
 router.get("/chat/list", userController.getChatSortedUsers);
 
+// 🆕 DOB and Birthday Related Routes
+router.get("/birthdays/today", userController.getBirthdayUsers);
+router.get("/birthdays/upcoming", userController.getUpcomingBirthdays);
+router.get("/birthdays/stats", userController.getBirthdayStats);
+router.get("/birthdays/user/:userId", userController.checkUserBirthday);
+router.get("/age-range", userController.getUsersByAgeRange);
+
 module.exports = router;

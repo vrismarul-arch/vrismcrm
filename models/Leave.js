@@ -1,3 +1,4 @@
+// models/Leave.js
 const mongoose = require("mongoose");
 
 const leaveSchema = new mongoose.Schema(
@@ -23,8 +24,12 @@ const leaveSchema = new mongoose.Schema(
       enum: ["Pending", "Approved", "Rejected"],
       default: "Pending",
     },
+    
+    leaveYear: {
+      type: Number,
+      default: () => new Date().getFullYear(),
+    },
 
-    // 🔥 Role-based approval tracking
     approval: {
       "Team Leader": {
         type: String,
@@ -45,7 +50,6 @@ const leaveSchema = new mongoose.Schema(
 
     rejectReason: String,
 
-    // 🔥 Based on current role reviewer
     currentLevel: {
       type: String,
       enum: ["Team Leader", "Admin", "Superadmin", "Completed"],
@@ -55,4 +59,5 @@ const leaveSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("Leave", leaveSchema);
+const Leave = mongoose.models.Leave || mongoose.model("Leave", leaveSchema);
+module.exports = Leave;
