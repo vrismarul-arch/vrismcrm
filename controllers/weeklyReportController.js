@@ -234,67 +234,33 @@ exports.getReportById = async (req, res) => {
 };
 
 // ✅ GET REPORT BY CLIENT ID (For Client Dashboard)
-// ✅ GET REPORT BY CLIENT ID (For Client Dashboard) - FIXED
 exports.getReportByClient = async (req, res) => {
   try {
     const { id } = req.params;
     const { month, year } = req.query;
 
-    console.log("Fetching reports for client:", id, { month, year });
-
     let query = { businessAccount: id };
-    
-    if (month) {
-      query.month = month;
+
+    if (month && year) {
+      query.month = { $regex: `${month}.*${year}`, $options: "i" };
+    } else if (month) {
+      query.month = { $regex: month, $options: "i" };
     } else if (year) {
       query.month = { $regex: year, $options: "i" };
     }
 
     const reports = await WeeklyReport.find(query)
-      .populate("businessAccount", "businessName email instagramHandle businessType")
-      .sort({ month: -1 });
+      .populate("businessAccount", "businessName email instagramHandle")
+      .sort({ createdAt: -1 });
 
-    // Calculate client statistics even if no reports
-    const clientStats = {
-      totalReports: reports.length,
-      averageStaticsAchievement: 0,
-      averageReelsAchievement: 0,
-      totalPosts: 0,
-      totalReels: 0,
-      bestMonth: null,
-    };
-
-    if (reports.length > 0) {
-      let totalStaticsPercent = 0;
-      let totalReelsPercent = 0;
-      let bestScore = 0;
-
-      reports.forEach(report => {
-        totalStaticsPercent += report.percentageAchieved?.statics || 0;
-        totalReelsPercent += report.percentageAchieved?.reels || 0;
-        clientStats.totalPosts += report.totalPosted?.statics || 0;
-        clientStats.totalReels += report.totalPosted?.reels || 0;
-        
-        const score = ((report.percentageAchieved?.statics || 0) + (report.percentageAchieved?.reels || 0)) / 2;
-        if (score > bestScore) {
-          bestScore = score;
-          clientStats.bestMonth = report.month;
-        }
-      });
-
-      clientStats.averageStaticsAchievement = (totalStaticsPercent / reports.length).toFixed(1);
-      clientStats.averageReelsAchievement = (totalReelsPercent / reports.length).toFixed(1);
-    }
-
-    // Return 200 even if no reports found (with empty array)
     res.status(200).json({
       success: true,
       count: reports.length,
-      statistics: clientStats,
       data: reports,
     });
+
   } catch (err) {
-    console.error("GET CLIENT REPORTS ERROR:", err);
+    console.error("CLIENT REPORT ERROR:", err);
     res.status(500).json({
       success: false,
       message: err.message,
