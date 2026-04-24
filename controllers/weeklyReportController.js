@@ -1,667 +1,1088 @@
-const WeeklyReport = require("../models/WeeklyReport");
-const BusinessAccount = require("../models/BusinessAccount");
+const mongoose = require('mongoose');
+const WeeklyReport = require('../models/WeeklyReport');
 
-// ✅ CREATE REPORT
-// ✅ CREATE REPORT - FIXED VERSION
-// ✅ CREATE REPORT - COMPLETELY FIXED VERSION
-exports.createReport = async (req, res) => {
+// @desc    Get all reports with filters
+// @route   GET /api/reports
+// @access  Public
+const getAllReports = async (req, res) => {
   try {
-    const { businessAccount, month, weeklyData } = req.body;
-
-    console.log("Creating report for:", { businessAccount, month });
-    console.log("Weekly data:", JSON.stringify(weeklyData, null, 2));
-
-    if (!businessAccount || !month) {
-      return res.status(400).json({
-        success: false,
-        message: "businessAccount and month are required",
-      });
-    }
-
-    const accountExists = await BusinessAccount.findById(businessAccount);
-    if (!accountExists) {
-      return res.status(404).json({
-        success: false,
-        message: "Business account not found",
-      });
-    }
-
-    const existingReport = await WeeklyReport.findOne({
-      businessAccount,
-      month,
-    });
-
-    if (existingReport) {
-      return res.status(400).json({
-        success: false,
-        message: "Report already exists for this client and month",
-      });
-    }
-
-    // Process weekly data to match schema structure
-    const processedWeeklyData = weeklyData.map(week => {
-      // Calculate posted counts
-      let postedStatics = 0;
-      let postedReels = 0;
-      let postsArray = [];
-      let reelsArray = [];
-      
-      // Handle posts
-      if (week.posted) {
-        // Check if posts array exists
-        if (week.posted.posts && Array.isArray(week.posted.posts)) {
-          postsArray = week.posted.posts.map(post => ({
-            title: post.title || "",
-            link: post.link || "",
-            postedDate: post.postedDate ? new Date(post.postedDate) : new Date()
-          }));
-          postedStatics = postsArray.length;
-        } else if (typeof week.posted.statics === 'number') {
-          postedStatics = week.posted.statics;
-        }
-        
-        // Handle reels - frontend sends reels as array
-        if (week.posted.reels && Array.isArray(week.posted.reels)) {
-          reelsArray = week.posted.reels.map(reel => ({
-            title: reel.title || "",
-            link: reel.link || "",
-            postedDate: reel.postedDate ? new Date(reel.postedDate) : new Date()
-          }));
-          postedReels = reelsArray.length;
-        } else if (typeof week.posted.reels === 'number') {
-          postedReels = week.posted.reels;
-        }
-        
-        // Also check for reelsList (backend format)
-        if (week.posted.reelsList && Array.isArray(week.posted.reelsList)) {
-          reelsArray = week.posted.reelsList.map(reel => ({
-            title: reel.title || "",
-            link: reel.link || "",
-            postedDate: reel.postedDate ? new Date(reel.postedDate) : new Date()
-          }));
-          postedReels = reelsArray.length;
-        }
+    const { businessAccount, month, year } = req.query;
+    let filter = {};
+    
+    if (businessAccount) filter.businessAccount = businessAccount;
+    if (month) filter.month = month;
+    if (year) filter.year = parseInt(year);
+    
+    const reports = await WeeklyReport.find(filter)
+      .populate('businessAccount', 'businessName email phone')
+      .populate('createdBy', 'name email')
+      .sort({ year: -1, month: -1, createdAt: -1 });
+    
+    const reportsWithSummary = reports.map(report => ({
+      ...report.toObject(),
+      summary: {
+        totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
+        totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
+        progressPercentage: report.overallProgress || 0,
+        weeksCompleted: report.weeks?.filter(w => w.weekProgress === 100).length || 0,
+        totalWeeks: report.weeks?.length || 0
       }
-      
-      return {
-        weekNumber: week.weekNumber,
-        target: {
-          statics: week.target?.statics || 0,
-          reels: week.target?.reels || 0,
-        },
-        posted: {
-          statics: postedStatics,
-          reels: postedReels,
-          posts: postsArray,
-          reelsList: reelsArray,
-        },
-        notes: week.notes || "",
-      };
-    });
-
-    // Calculate totals
-    let totalPostedStatics = 0;
-    let totalPostedReels = 0;
-    let totalTargetStatics = 0;
-    let totalTargetReels = 0;
-
-    processedWeeklyData.forEach((w) => {
-      totalPostedStatics += w.posted?.statics || 0;
-      totalPostedReels += w.posted?.reels || 0;
-      totalTargetStatics += w.target?.statics || 0;
-      totalTargetReels += w.target?.reels || 0;
-    });
-
-    const percentageStatics = totalTargetStatics
-      ? Number(((totalPostedStatics / totalTargetStatics) * 100).toFixed(1))
-      : 0;
-
-    const percentageReels = totalTargetReels
-      ? Number(((totalPostedReels / totalTargetReels) * 100).toFixed(1))
-      : 0;
-
-    const reportData = {
-      businessAccount,
-      month,
-      weeklyData: processedWeeklyData,
-      totalPosted: {
-        statics: totalPostedStatics,
-        reels: totalPostedReels,
-      },
-      totalTarget: {
-        statics: totalTargetStatics,
-        reels: totalTargetReels,
-      },
-      percentageAchieved: {
-        statics: percentageStatics,
-        reels: percentageReels,
-      },
-    };
-
-    console.log("Processed report data:", JSON.stringify(reportData, null, 2));
-
-    const report = await WeeklyReport.create(reportData);
-    await report.populate("businessAccount", "businessName email");
-
-    res.status(201).json({
-      success: true,
-      message: "Report created successfully",
-      data: report,
-    });
-  } catch (err) {
-    console.error("CREATE REPORT ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
-
-// ✅ GET ALL REPORTS
-// ✅ GET ALL REPORTS - FIXED
-exports.getReports = async (req, res) => {
-  try {
-    const { month, clientId, year, page = 1, limit = 10, sortBy = 'createdAt', order = 'desc' } = req.query;
+    }));
     
-    let query = {};
-    
-    if (month) {
-      query.month = { $regex: month, $options: "i" };
-    }
-    if (year) {
-      query.month = { $regex: year, $options: "i" };
-    }
-    if (clientId) {
-      query.businessAccount = clientId;
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const sortOrder = order === 'desc' ? -1 : 1;
-    const sortOptions = { [sortBy]: sortOrder };
-
-    const reports = await WeeklyReport.find(query)
-      .populate("businessAccount", "businessName email businessType")
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await WeeklyReport.countDocuments(query);
-
-    // Always return 200 even if no reports
     res.status(200).json({
       success: true,
       count: reports.length,
-      total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit)),
-      data: reports,
+      data: reportsWithSummary
     });
-  } catch (err) {
-    console.error("GET REPORTS ERROR:", err);
+  } catch (error) {
+    console.error('Error in getAllReports:', error);
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: 'Server Error',
+      error: error.message
     });
   }
 };
 
-// ✅ GET REPORT BY ID
-exports.getReportById = async (req, res) => {
+// @desc    Get single report by ID
+// @route   GET /api/reports/:id
+// @access  Public
+const getReportById = async (req, res) => {
   try {
     const { id } = req.params;
-
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
+    }
+    
     const report = await WeeklyReport.findById(id)
-      .populate("businessAccount", "businessName email businessType contactPerson");
-
+      .populate('businessAccount', 'businessName email phone address')
+      .populate('createdBy', 'name email');
+    
     if (!report) {
       return res.status(404).json({
         success: false,
-        message: "Report not found",
+        message: 'Report not found'
       });
     }
-
-    res.json({
+    
+    const monthlySummary = {
+      totalStaticTarget: report.totalStaticTarget || 0,
+      totalReelsTarget: report.totalReelsTarget || 0,
+      totalStaticCompleted: report.totalStaticCompleted || 0,
+      totalReelsCompleted: report.totalReelsCompleted || 0,
+      overallProgress: report.overallProgress || 0,
+      weeksData: report.weeks?.map(week => ({
+        weekNumber: week.weekNumber,
+        staticTarget: week.staticTarget || 0,
+        reelsTarget: week.reelsTarget || 0,
+        staticCompleted: week.staticCompleted || 0,
+        reelsCompleted: week.reelsCompleted || 0,
+        weekProgress: week.weekProgress || 0,
+        postsCount: week.posts?.length || 0
+      })) || []
+    };
+    
+    res.status(200).json({
       success: true,
       data: report,
+      summary: monthlySummary
     });
-  } catch (err) {
-    console.error("GET REPORT BY ID ERROR:", err);
+  } catch (error) {
+    console.error('Error in getReportById:', error);
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: 'Server Error',
+      error: error.message
     });
   }
 };
 
-// ✅ GET REPORT BY CLIENT ID (For Client Dashboard)
-exports.getReportByClient = async (req, res) => {
+// @desc    Create or update weekly report
+// @route   POST /api/reports
+// @access  Public
+const createOrUpdateReport = async (req, res) => {
+  try {
+    const { businessAccount, month, year, weeks, createdBy } = req.body;
+    
+    if (!businessAccount || !month || !year) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide businessAccount, month, and year'
+      });
+    }
+    
+    if (!mongoose.Types.ObjectId.isValid(businessAccount)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid business account ID'
+      });
+    }
+    
+    let report = await WeeklyReport.findOne({ businessAccount, month, year });
+    
+    if (report) {
+      report.weeks = weeks || report.weeks;
+      await report.save();
+      
+      await report.populate('businessAccount', 'businessName');
+      await report.populate('createdBy', 'name email');
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Report updated successfully',
+        data: report,
+        summary: {
+          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
+          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
+          progress: report.overallProgress || 0
+        }
+      });
+    } else {
+      report = new WeeklyReport({
+        businessAccount,
+        month,
+        year,
+        weeks: weeks || [],
+        createdBy: createdBy || req.user?._id
+      });
+      
+      await report.save();
+      
+      await report.populate('businessAccount', 'businessName');
+      await report.populate('createdBy', 'name email');
+      
+      return res.status(201).json({
+        success: true,
+        message: 'Report created successfully',
+        data: report,
+        summary: {
+          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
+          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
+          progress: report.overallProgress || 0
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error in createOrUpdateReport:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update specific week in report
+// @route   PUT /api/reports/:id/week/:weekNumber
+// @access  Public
+const updateWeek = async (req, res) => {
+  try {
+    const { id, weekNumber } = req.params;
+    const { staticTarget, reelsTarget, posts, weekStartDate, weekEndDate } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
+    }
+    
+    const report = await WeeklyReport.findById(id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+    
+    const weekIndex = report.weeks.findIndex(w => w.weekNumber === parseInt(weekNumber));
+    
+    if (weekIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Week not found'
+      });
+    }
+    
+    if (staticTarget !== undefined) report.weeks[weekIndex].staticTarget = staticTarget;
+    if (reelsTarget !== undefined) report.weeks[weekIndex].reelsTarget = reelsTarget;
+    if (posts !== undefined) report.weeks[weekIndex].posts = posts;
+    if (weekStartDate !== undefined) report.weeks[weekIndex].weekStartDate = weekStartDate;
+    if (weekEndDate !== undefined) report.weeks[weekIndex].weekEndDate = weekEndDate;
+    
+    report.calculateTotals();
+    report.calculateCompleted();
+    report.calculateProgress();
+    await report.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Week updated successfully',
+      data: report
+    });
+  } catch (error) {
+    console.error('Error in updateWeek:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Add post to a week
+// @route   POST /api/reports/:id/week/:weekNumber/posts
+// @access  Public
+const addPostToWeek = async (req, res) => {
+  try {
+    const { id, weekNumber } = req.params;
+    const { title, instagramLink, postedDate, notes, type } = req.body;
+    
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        message: 'Post title is required'
+      });
+    }
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
+    }
+    
+    const report = await WeeklyReport.findById(id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+    
+    const weekIndex = report.weeks.findIndex(w => w.weekNumber === parseInt(weekNumber));
+    
+    if (weekIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Week not found'
+      });
+    }
+    
+    const newPost = {
+      title,
+      instagramLink: instagramLink || '',
+      postedDate: postedDate ? new Date(postedDate) : new Date(),
+      notes: notes || '',
+      type: type || 'static'
+    };
+    
+    report.weeks[weekIndex].posts.push(newPost);
+    
+    report.calculateTotals();
+    report.calculateCompleted();
+    report.calculateProgress();
+    await report.save();
+    
+    res.status(201).json({
+      success: true,
+      message: 'Post added successfully',
+      data: report
+    });
+  } catch (error) {
+    console.error('Error in addPostToWeek:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update post in week
+// @route   PUT /api/reports/:id/week/:weekNumber/posts/:postIndex
+// @access  Public
+const updatePostInWeek = async (req, res) => {
+  try {
+    const { id, weekNumber, postIndex } = req.params;
+    const { title, instagramLink, postedDate, notes, type } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
+    }
+    
+    const report = await WeeklyReport.findById(id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+    
+    const weekIndex = report.weeks.findIndex(w => w.weekNumber === parseInt(weekNumber));
+    
+    if (weekIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Week not found'
+      });
+    }
+    
+    const post = report.weeks[weekIndex].posts[parseInt(postIndex)];
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+    
+    if (title) post.title = title;
+    if (instagramLink !== undefined) post.instagramLink = instagramLink;
+    if (postedDate) post.postedDate = new Date(postedDate);
+    if (notes !== undefined) post.notes = notes;
+    if (type) post.type = type;
+    
+    report.calculateTotals();
+    report.calculateCompleted();
+    report.calculateProgress();
+    await report.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Post updated successfully',
+      data: report
+    });
+  } catch (error) {
+    console.error('Error in updatePostInWeek:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Delete post from week
+// @route   DELETE /api/reports/:id/week/:weekNumber/posts/:postIndex
+// @access  Public
+const deletePostFromWeek = async (req, res) => {
+  try {
+    const { id, weekNumber, postIndex } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
+    }
+    
+    const report = await WeeklyReport.findById(id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+    
+    const weekIndex = report.weeks.findIndex(w => w.weekNumber === parseInt(weekNumber));
+    
+    if (weekIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Week not found'
+      });
+    }
+    
+    report.weeks[weekIndex].posts.splice(parseInt(postIndex), 1);
+    
+    report.calculateTotals();
+    report.calculateCompleted();
+    report.calculateProgress();
+    await report.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Post deleted successfully',
+      data: report
+    });
+  } catch (error) {
+    console.error('Error in deletePostFromWeek:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Delete entire report
+// @route   DELETE /api/reports/:id
+// @access  Public
+const deleteReport = async (req, res) => {
   try {
     const { id } = req.params;
-    const { month, year } = req.query;
-
-    let query = { businessAccount: id };
-
-    if (month && year) {
-      query.month = { $regex: `${month}.*${year}`, $options: "i" };
-    } else if (month) {
-      query.month = { $regex: month, $options: "i" };
-    } else if (year) {
-      query.month = { $regex: year, $options: "i" };
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
     }
+    
+    const report = await WeeklyReport.findByIdAndDelete(id);
+    
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Report deleted successfully',
+      data: report
+    });
+  } catch (error) {
+    console.error('Error in deleteReport:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
 
-    const reports = await WeeklyReport.find(query)
-      .populate("businessAccount", "businessName email instagramHandle")
-      .sort({ createdAt: -1 });
-
+// @desc    Get reports by business account
+// @route   GET /api/reports/business/:businessAccountId
+// @access  Public
+const getReportsByBusinessAccount = async (req, res) => {
+  try {
+    const { businessAccountId } = req.params;
+    const { year } = req.query;
+    
+    if (!mongoose.Types.ObjectId.isValid(businessAccountId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid business account ID'
+      });
+    }
+    
+    let filter = { businessAccount: businessAccountId };
+    if (year) filter.year = parseInt(year);
+    
+    const reports = await WeeklyReport.find(filter)
+      .populate('createdBy', 'name email')
+      .sort({ year: -1, month: -1 });
+    
     res.status(200).json({
       success: true,
       count: reports.length,
-      data: reports,
+      data: reports
     });
-
-  } catch (err) {
-    console.error("CLIENT REPORT ERROR:", err);
+  } catch (error) {
+    console.error('Error in getReportsByBusinessAccount:', error);
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: 'Server Error',
+      error: error.message
     });
   }
 };
 
-// ✅ UPDATE REPORT
-// ✅ UPDATE REPORT - FIXED VERSION
-exports.updateReport = async (req, res) => {
+// @desc    Get monthly summary for business account
+// @route   GET /api/reports/summary/business/:businessAccountId
+// @access  Public
+const getBusinessMonthlySummary = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { weeklyData, month, businessAccount } = req.body;
-
-    console.log("Updating report with data:", JSON.stringify({ weeklyData, month, businessAccount }, null, 2));
-
-    const existingReport = await WeeklyReport.findById(id);
-    if (!existingReport) {
-      return res.status(404).json({
-        success: false,
-        message: "Report not found",
-      });
-    }
-
-    let totalPostedStatics = 0;
-    let totalPostedReels = 0;
-    let totalTargetStatics = 0;
-    let totalTargetReels = 0;
-
-    const dataToUpdate = weeklyData || existingReport.weeklyData;
-
-    // Process the data to match the schema structure
-    const processedData = dataToUpdate.map(week => {
-      const processed = {
-        weekNumber: week.weekNumber,
-        target: {
-          statics: week.target?.statics || 0,
-          reels: week.target?.reels || 0,
-        },
-        notes: week.notes || "",
-        posted: {
-          statics: 0,
-          reels: 0,
-          posts: [],
-          reelsList: [],
-        }
-      };
-      
-      // Handle posts
-      if (week.posted) {
-        // Handle posts array
-        if (week.posted.posts && Array.isArray(week.posted.posts)) {
-          processed.posted.posts = week.posted.posts.map(post => ({
-            title: post.title || "",
-            link: post.link || "",
-            postedDate: post.postedDate ? new Date(post.postedDate) : new Date()
-          }));
-          processed.posted.statics = processed.posted.posts.length;
-        } else if (week.posted.statics && typeof week.posted.statics === 'number') {
-          processed.posted.statics = week.posted.statics;
-        }
-        
-        // Handle reels
-        if (week.posted.reels && Array.isArray(week.posted.reels)) {
-          processed.posted.reelsList = week.posted.reels.map(reel => ({
-            title: reel.title || "",
-            link: reel.link || "",
-            postedDate: reel.postedDate ? new Date(reel.postedDate) : new Date()
-          }));
-          processed.posted.reels = processed.posted.reelsList.length;
-        } else if (week.posted.reels && typeof week.posted.reels === 'number') {
-          processed.posted.reels = week.posted.reels;
-        }
-        
-        // Handle reelsList if present
-        if (week.posted.reelsList && Array.isArray(week.posted.reelsList)) {
-          processed.posted.reelsList = week.posted.reelsList.map(reel => ({
-            title: reel.title || "",
-            link: reel.link || "",
-            postedDate: reel.postedDate ? new Date(reel.postedDate) : new Date()
-          }));
-          processed.posted.reels = processed.posted.reelsList.length;
-        }
-      }
-      
-      totalPostedStatics += processed.posted.statics || 0;
-      totalPostedReels += processed.posted.reels || 0;
-      totalTargetStatics += processed.target.statics || 0;
-      totalTargetReels += processed.target.reels || 0;
-      
-      return processed;
-    });
-
-    const updateData = {
-      weeklyData: processedData,
-      totalPosted: {
-        statics: totalPostedStatics,
-        reels: totalPostedReels,
-      },
-      totalTarget: {
-        statics: totalTargetStatics,
-        reels: totalTargetReels,
-      },
-      percentageAchieved: {
-        statics: totalTargetStatics
-          ? Number(((totalPostedStatics / totalTargetStatics) * 100).toFixed(1))
-          : 0,
-        reels: totalTargetReels
-          ? Number(((totalPostedReels / totalTargetReels) * 100).toFixed(1))
-          : 0,
-      },
-    };
-
-    if (month) updateData.month = month;
-    if (businessAccount) updateData.businessAccount = businessAccount;
-
-    console.log("Update data being sent:", JSON.stringify(updateData, null, 2));
-
-    const updated = await WeeklyReport.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    ).populate("businessAccount", "businessName email");
-
-    res.json({
-      success: true,
-      message: "Report updated successfully",
-      data: updated,
-    });
-  } catch (err) {
-    console.error("UPDATE ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
-
-// ✅ DELETE REPORT
-exports.deleteReport = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const deleted = await WeeklyReport.findByIdAndDelete(id);
-
-    if (!deleted) {
-      return res.status(404).json({
-        success: false,
-        message: "Report not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Report deleted successfully",
-    });
-  } catch (err) {
-    console.error("DELETE ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
-
-// ✅ BULK DELETE REPORTS
-exports.bulkDeleteReports = async (req, res) => {
-  try {
-    const { ids } = req.body;
-
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    const { businessAccountId } = req.params;
+    const { year } = req.query;
+    
+    if (!mongoose.Types.ObjectId.isValid(businessAccountId)) {
       return res.status(400).json({
         success: false,
-        message: "Please provide an array of report IDs",
+        message: 'Invalid business account ID'
       });
     }
-
-    const result = await WeeklyReport.deleteMany({ _id: { $in: ids } });
-
-    res.json({
+    
+    let filter = { businessAccount: businessAccountId };
+    if (year) filter.year = parseInt(year);
+    
+    const reports = await WeeklyReport.find(filter)
+      .sort({ year: -1, month: 1 });
+    
+    const summary = reports.map(report => ({
+      businessAccount: report.businessAccount,
+      month: report.month,
+      year: report.year,
+      totalStaticTarget: report.totalStaticTarget || 0,
+      totalReelsTarget: report.totalReelsTarget || 0,
+      totalStaticCompleted: report.totalStaticCompleted || 0,
+      totalReelsCompleted: report.totalReelsCompleted || 0,
+      overallProgress: report.overallProgress || 0,
+      totalPosts: report.weeks?.reduce((sum, week) => sum + (week.posts?.length || 0), 0) || 0,
+      weeksCount: report.weeks?.length || 0
+    }));
+    
+    res.status(200).json({
       success: true,
-      message: `Successfully deleted ${result.deletedCount} reports`,
-      deletedCount: result.deletedCount,
+      count: summary.length,
+      data: summary
     });
-  } catch (err) {
-    console.error("BULK DELETE ERROR:", err);
+  } catch (error) {
+    console.error('Error in getBusinessMonthlySummary:', error);
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: 'Server Error',
+      error: error.message
     });
   }
 };
 
-// ✅ GET MONTHLY SUMMARY
-exports.getMonthlySummary = async (req, res) => {
+// @desc    Add a new week to report
+// @route   POST /api/reports/:id/week
+// @access  Public
+const addWeek = async (req, res) => {
   try {
-    const { year } = req.params;
-    const targetYear = year || new Date().getFullYear().toString();
+    const { id } = req.params;
+    const { weekNumber, staticTarget, reelsTarget, weekStartDate, weekEndDate } = req.body;
     
-    const reports = await WeeklyReport.find({
-      month: { $regex: targetYear, $options: "i" }
-    }).populate("businessAccount", "businessName");
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
+    }
+    
+    const report = await WeeklyReport.findById(id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+    
+    const existingWeek = report.weeks.find(w => w.weekNumber === weekNumber);
+    if (existingWeek) {
+      return res.status(400).json({
+        success: false,
+        message: `Week ${weekNumber} already exists`
+      });
+    }
+    
+    report.weeks.push({
+      weekNumber,
+      staticTarget: staticTarget || 0,
+      reelsTarget: reelsTarget || 0,
+      weekStartDate: weekStartDate || null,
+      weekEndDate: weekEndDate || null,
+      posts: []
+    });
+    
+    report.calculateTotals();
+    report.calculateCompleted();
+    report.calculateProgress();
+    await report.save();
+    
+    res.status(201).json({
+      success: true,
+      message: `Week ${weekNumber} added successfully`,
+      data: report
+    });
+  } catch (error) {
+    console.error('Error in addWeek:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
 
-    const monthlyData = {};
-    const months = [
-      "January", "February", "March", "April", "May", "June",
-      "July", "August", "September", "October", "November", "December"
-    ];
+// @desc    Get monthly statistics
+// @route   GET /api/reports/statistics/monthly
+// @access  Public
+const getMonthlyStatistics = async (req, res) => {
+  try {
+    const { businessAccount, year } = req.query;
+    
+    let filter = {};
+    if (businessAccount) filter.businessAccount = businessAccount;
+    if (year) filter.year = parseInt(year);
+    else filter.year = new Date().getFullYear();
+    
+    const reports = await WeeklyReport.find(filter)
+      .populate('businessAccount', 'businessName');
+    
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    
+    const monthlyStats = {};
+    months.forEach(month => {
+      monthlyStats[month] = {
+        totalStaticTarget: 0,
+        totalReelsTarget: 0,
+        totalStaticCompleted: 0,
+        totalReelsCompleted: 0,
+        reportsCount: 0,
+        progress: 0
+      };
+    });
+    
+    reports.forEach(report => {
+      const stats = monthlyStats[report.month];
+      if (stats) {
+        stats.totalStaticTarget += report.totalStaticTarget || 0;
+        stats.totalReelsTarget += report.totalReelsTarget || 0;
+        stats.totalStaticCompleted += report.totalStaticCompleted || 0;
+        stats.totalReelsCompleted += report.totalReelsCompleted || 0;
+        stats.reportsCount += 1;
+      }
+    });
+    
+    Object.keys(monthlyStats).forEach(month => {
+      const stats = monthlyStats[month];
+      const totalTarget = stats.totalStaticTarget + stats.totalReelsTarget;
+      const totalCompleted = stats.totalStaticCompleted + stats.totalReelsCompleted;
+      stats.progress = totalTarget > 0 ? (totalCompleted / totalTarget) * 100 : 0;
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: monthlyStats,
+      year: filter.year
+    });
+  } catch (error) {
+    console.error('Error in getMonthlyStatistics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// ==================== CLIENT REPORT FUNCTIONS ====================
+// @desc    Get client reports with complete details including posts
+// @route   GET /api/reports/client/:businessAccountId
+// @access  Public
+const getClientReports = async (req, res) => {
+  try {
+    const { businessAccountId } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(businessAccountId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid business account ID'
+      });
+    }
+    
+    const reports = await WeeklyReport.find({ businessAccount: businessAccountId })
+      .populate('businessAccount', 'businessName email phone')
+      .sort({ year: -1, month: -1 });
+    
+    if (!reports || reports.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        message: 'No reports found'
+      });
+    }
+    
+    const formattedReports = reports.map(report => {
+      let totalStaticTarget = 0;
+      let totalReelsTarget = 0;
+      let totalStaticCompleted = 0;
+      let totalReelsCompleted = 0;
+      let allPosts = [];
+      let allReels = [];
+      
+      const weeklyData = (report.weeks || []).map(week => {
+        // Get posts from week.posts array (this is where your actual data is)
+        const weekPosts = week.posts || [];
+        
+        // Separate static posts and reels based on type
+        const staticPostsList = weekPosts.filter(p => p.type === 'static' || p.type === 'post' || !p.type);
+        const reelsPostsList = weekPosts.filter(p => p.type === 'reels' || p.type === 'reel');
+        
+        // Update totals
+        totalStaticTarget += week.staticTarget || 0;
+        totalReelsTarget += week.reelsTarget || 0;
+        totalStaticCompleted += staticPostsList.length;
+        totalReelsCompleted += reelsPostsList.length;
+        
+        // Format posts for client view
+        const formattedPosts = staticPostsList.map(p => ({
+          id: p._id,
+          title: p.title || 'Untitled Post',
+          link: p.instagramLink || '',
+          description: p.notes || '',
+          postedDate: p.postedDate,
+          type: p.type || 'static'
+        }));
+        
+        // Format reels for client view
+        const formattedReels = reelsPostsList.map(p => ({
+          id: p._id,
+          title: p.title || 'Untitled Reel',
+          link: p.instagramLink || '',
+          description: p.notes || '',
+          postedDate: p.postedDate,
+          type: p.type || 'reels'
+        }));
+        
+        // Add to all collections
+        allPosts = [...allPosts, ...formattedPosts];
+        allReels = [...allReels, ...formattedReels];
+        
+        // Calculate week progress
+        const weekTotalTarget = (week.staticTarget || 0) + (week.reelsTarget || 0);
+        const weekTotalCompleted = staticPostsList.length + reelsPostsList.length;
+        const weekProgress = weekTotalTarget > 0 ? (weekTotalCompleted / weekTotalTarget) * 100 : 0;
+        
+        return {
+          weekNumber: week.weekNumber,
+          weekStartDate: week.weekStartDate,
+          weekEndDate: week.weekEndDate,
+          target: {
+            statics: week.staticTarget || 0,
+            reels: week.reelsTarget || 0
+          },
+          posted: {
+            statics: staticPostsList.length,
+            reels: reelsPostsList.length,
+            posts: formattedPosts,
+            reelsList: formattedReels
+          },
+          weekProgress: week.weekProgress || weekProgress,
+          notes: week.notes || ""
+        };
+      });
+      
+      // Calculate overall percentages
+      const totalTarget = totalStaticTarget + totalReelsTarget;
+      const totalCompleted = totalStaticCompleted + totalReelsCompleted;
+      const staticPercentage = totalStaticTarget > 0 ? (totalStaticCompleted / totalStaticTarget) * 100 : 0;
+      const reelsPercentage = totalReelsTarget > 0 ? (totalReelsCompleted / totalReelsTarget) * 100 : 0;
+      const overallPercentage = totalTarget > 0 ? (totalCompleted / totalTarget) * 100 : 0;
+      
+      return {
+        _id: report._id,
+        month: report.month,
+        year: report.year,
+        businessAccount: report.businessAccount,
+        totalTarget: {
+          statics: totalStaticTarget,
+          reels: totalReelsTarget,
+          total: totalTarget
+        },
+        totalPosted: {
+          statics: totalStaticCompleted,
+          reels: totalReelsCompleted,
+          total: totalCompleted
+        },
+        percentageAchieved: {
+          statics: Number(staticPercentage.toFixed(2)),
+          reels: Number(reelsPercentage.toFixed(2)),
+          overall: Number(overallPercentage.toFixed(2))
+        },
+        weeklyData: weeklyData,
+        allPosts: allPosts,
+        allReels: allReels,
+        postsCount: allPosts.length,
+        reelsCount: allReels.length,
+        createdAt: report.createdAt,
+        updatedAt: report.updatedAt
+      };
+    });
+    
+    res.status(200).json({
+      success: true,
+      count: formattedReports.length,
+      data: formattedReports
+    });
+    
+  } catch (error) {
+    console.error('Error in getClientReports:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get single client report with full details including all posts
+// @route   GET /api/reports/client/:businessAccountId/:reportId
+// @access  Public
+const getClientReportById = async (req, res) => {
+  try {
+    const { businessAccountId, reportId } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(businessAccountId) || 
+        !mongoose.Types.ObjectId.isValid(reportId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid ID format'
+      });
+    }
+    
+    const report = await WeeklyReport.findOne({
+      _id: reportId,
+      businessAccount: businessAccountId
+    }).populate('businessAccount', 'businessName email phone address');
+    
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+    
+    let totalStaticTarget = 0;
+    let totalReelsTarget = 0;
+    let totalStaticCompleted = 0;
+    let totalReelsCompleted = 0;
+    let allPosts = [];
+    let allReels = [];
+    
+    const weeklyData = (report.weeks || []).map(week => {
+      // Get posts from week.posts array
+      const weekPosts = week.posts || [];
+      
+      // Separate by type
+      const staticPostsList = weekPosts.filter(p => p.type === 'static' || p.type === 'post' || !p.type);
+      const reelsPostsList = weekPosts.filter(p => p.type === 'reels' || p.type === 'reel');
+      
+      totalStaticTarget += week.staticTarget || 0;
+      totalReelsTarget += week.reelsTarget || 0;
+      totalStaticCompleted += staticPostsList.length;
+      totalReelsCompleted += reelsPostsList.length;
+      
+      const formattedPosts = staticPostsList.map(p => ({
+        id: p._id,
+        title: p.title || 'Untitled Post',
+        link: p.instagramLink || '',
+        description: p.notes || '',
+        postedDate: p.postedDate,
+        type: p.type || 'static'
+      }));
+      
+      const formattedReels = reelsPostsList.map(p => ({
+        id: p._id,
+        title: p.title || 'Untitled Reel',
+        link: p.instagramLink || '',
+        description: p.notes || '',
+        postedDate: p.postedDate,
+        type: p.type || 'reels'
+      }));
+      
+      allPosts = [...allPosts, ...formattedPosts];
+      allReels = [...allReels, ...formattedReels];
+      
+      const weekTotalTarget = (week.staticTarget || 0) + (week.reelsTarget || 0);
+      const weekTotalCompleted = staticPostsList.length + reelsPostsList.length;
+      const weekProgress = weekTotalTarget > 0 ? (weekTotalCompleted / weekTotalTarget) * 100 : 0;
+      
+      return {
+        weekNumber: week.weekNumber,
+        weekStartDate: week.weekStartDate,
+        weekEndDate: week.weekEndDate,
+        target: {
+          statics: week.staticTarget || 0,
+          reels: week.reelsTarget || 0
+        },
+        posted: {
+          statics: staticPostsList.length,
+          reels: reelsPostsList.length,
+          posts: formattedPosts,
+          reelsList: formattedReels
+        },
+        weekProgress: week.weekProgress || weekProgress,
+        notes: week.notes || ""
+      };
+    });
+    
+    const totalTarget = totalStaticTarget + totalReelsTarget;
+    const totalCompleted = totalStaticCompleted + totalReelsCompleted;
+    const staticPercentage = totalStaticTarget > 0 ? (totalStaticCompleted / totalStaticTarget) * 100 : 0;
+    const reelsPercentage = totalReelsTarget > 0 ? (totalReelsCompleted / totalReelsTarget) * 100 : 0;
+    const overallPercentage = totalTarget > 0 ? (totalCompleted / totalTarget) * 100 : 0;
+    
+    const formattedReport = {
+      _id: report._id,
+      month: report.month,
+      year: report.year,
+      businessAccount: {
+        _id: report.businessAccount._id,
+        businessName: report.businessAccount.businessName,
+        email: report.businessAccount.email,
+        phone: report.businessAccount.phone
+      },
+      summary: {
+        totalStaticTarget,
+        totalReelsTarget,
+        totalTarget,
+        totalStaticCompleted,
+        totalReelsCompleted,
+        totalCompleted,
+        staticPercentage: Number(staticPercentage.toFixed(2)),
+        reelsPercentage: Number(reelsPercentage.toFixed(2)),
+        overallPercentage: Number(overallPercentage.toFixed(2))
+      },
+      weeklyData: weeklyData,
+      allPosts: allPosts,
+      allReels: allReels,
+      postsCount: allPosts.length,
+      reelsCount: allReels.length,
+      createdAt: report.createdAt,
+      updatedAt: report.updatedAt
+    };
+    
+    res.status(200).json({
+      success: true,
+      data: formattedReport
+    });
+    
+  } catch (error) {
+    console.error('Error in getClientReportById:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get client report statistics summary
+// @route   GET /api/reports/client/:businessAccountId/statistics
+// @access  Public
+const getClientReportStatistics = async (req, res) => {
+  try {
+    const { businessAccountId } = req.params;
+    const { year } = req.query;
+    
+    if (!mongoose.Types.ObjectId.isValid(businessAccountId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid business account ID'
+      });
+    }
+    
+    let filter = { businessAccount: businessAccountId };
+    if (year) filter.year = parseInt(year);
+    
+    const reports = await WeeklyReport.find(filter).sort({ year: 1, month: 1 });
+    
+    const monthlyStats = {};
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 
+                    'July', 'August', 'September', 'October', 'November', 'December'];
     
     months.forEach(month => {
-      monthlyData[month] = {
-        totalReports: 0,
-        avgAchievement: 0,
-        totalPosts: 0,
-        totalTargets: 0,
-        reports: [],
+      monthlyStats[month] = {
+        month,
+        totalStaticTarget: 0,
+        totalReelsTarget: 0,
+        totalStaticCompleted: 0,
+        totalReelsCompleted: 0,
+        completionRate: 0,
+        reportsCount: 0
       };
     });
     
+    let totalAllStaticTarget = 0;
+    let totalAllReelsTarget = 0;
+    let totalAllStaticCompleted = 0;
+    let totalAllReelsCompleted = 0;
+    
     reports.forEach(report => {
-      const monthName = report.month.split(' ')[0];
-      if (monthlyData[monthName]) {
-        monthlyData[monthName].totalReports++;
-        monthlyData[monthName].totalPosts += (report.totalPosted?.statics || 0) + (report.totalPosted?.reels || 0);
-        monthlyData[monthName].totalTargets += (report.totalTarget?.statics || 0) + (report.totalTarget?.reels || 0);
-        monthlyData[monthName].reports.push({
-          id: report._id,
-          client: report.businessAccount?.businessName,
-          achievement: ((report.percentageAchieved?.statics || 0) + (report.percentageAchieved?.reels || 0)) / 2,
-        });
+      const stats = monthlyStats[report.month];
+      if (stats) {
+        const staticTarget = (report.weeks || []).reduce((sum, w) => sum + (w.staticTarget || 0), 0);
+        const reelsTarget = (report.weeks || []).reduce((sum, w) => sum + (w.reelsTarget || 0), 0);
+        const staticCompleted = (report.weeks || []).reduce((sum, w) => sum + (w.staticCompleted || 0), 0);
+        const reelsCompleted = (report.weeks || []).reduce((sum, w) => sum + (w.reelsCompleted || 0), 0);
+        
+        stats.totalStaticTarget += staticTarget;
+        stats.totalReelsTarget += reelsTarget;
+        stats.totalStaticCompleted += staticCompleted;
+        stats.totalReelsCompleted += reelsCompleted;
+        stats.reportsCount += 1;
+        
+        totalAllStaticTarget += staticTarget;
+        totalAllReelsTarget += reelsTarget;
+        totalAllStaticCompleted += staticCompleted;
+        totalAllReelsCompleted += reelsCompleted;
       }
     });
-
-    res.json({
-      success: true,
-      year: targetYear,
-      monthlyData,
-    });
-  } catch (err) {
-    console.error("MONTHLY SUMMARY ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
-
-// ✅ GET PERFORMANCE ANALYTICS
-exports.getPerformanceAnalytics = async (req, res) => {
-  try {
-    const { startDate, endDate, clientId } = req.query;
     
-    let query = {};
+    Object.keys(monthlyStats).forEach(month => {
+      const stats = monthlyStats[month];
+      const totalTarget = stats.totalStaticTarget + stats.totalReelsTarget;
+      const totalCompleted = stats.totalStaticCompleted + stats.totalReelsCompleted;
+      stats.completionRate = totalTarget > 0 ? Number(((totalCompleted / totalTarget) * 100).toFixed(2)) : 0;
+    });
     
-    if (startDate && endDate) {
-      query.createdAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
-      };
-    }
-    if (clientId) {
-      query.businessAccount = clientId;
-    }
-
-    const reports = await WeeklyReport.find(query)
-      .populate("businessAccount", "businessName");
-
-    const analytics = {
-      totalReports: reports.length,
-      performanceDistribution: {
-        excellent: 0,
-        good: 0,
-        average: 0,
-        poor: 0,
-      },
-      topPerformers: [],
-      needsImprovement: [],
-    };
-
-    reports.forEach(report => {
-      const overallAchievement = ((report.percentageAchieved?.statics || 0) + 
-                                  (report.percentageAchieved?.reels || 0)) / 2;
-      
-      if (overallAchievement >= 90) analytics.performanceDistribution.excellent++;
-      else if (overallAchievement >= 70) analytics.performanceDistribution.good++;
-      else if (overallAchievement >= 50) analytics.performanceDistribution.average++;
-      else analytics.performanceDistribution.poor++;
-    });
-
-    res.json({
+    const totalOverallTarget = totalAllStaticTarget + totalAllReelsTarget;
+    const totalOverallCompleted = totalAllStaticCompleted + totalAllReelsCompleted;
+    const overallCompletionRate = totalOverallTarget > 0 ? Number(((totalOverallCompleted / totalOverallTarget) * 100).toFixed(2)) : 0;
+    
+    const monthsWithData = Object.values(monthlyStats).filter(m => m.reportsCount > 0);
+    const bestMonth = monthsWithData.length > 0 ? 
+      monthsWithData.reduce((best, curr) => curr.completionRate > best.completionRate ? curr : best, monthsWithData[0]) : null;
+    const worstMonth = monthsWithData.length > 0 ?
+      monthsWithData.reduce((worst, curr) => curr.completionRate < worst.completionRate ? curr : worst, monthsWithData[0]) : null;
+    
+    res.status(200).json({
       success: true,
-      analytics,
-    });
-  } catch (err) {
-    console.error("PERFORMANCE ANALYTICS ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
-
-// ✅ GET CLIENT DASHBOARD STATS (For logged-in client)
-exports.getClientDashboard = async (req, res) => {
-  try {
-    const { clientId } = req.params;
-    const { year } = req.query;
-
-    if (!clientId) {
-      return res.status(400).json({
-        success: false,
-        message: "Client ID is required",
-      });
-    }
-
-    let query = { businessAccount: clientId };
-    if (year) {
-      query.month = { $regex: year, $options: "i" };
-    }
-
-    const reports = await WeeklyReport.find(query)
-      .populate("businessAccount", "businessName email instagramHandle")
-      .sort({ month: -1 });
-
-    const clientInfo = await BusinessAccount.findById(clientId);
-
-    let totalPosts = 0;
-    let totalReels = 0;
-    let totalStaticsTarget = 0;
-    let totalReelsTarget = 0;
-    let totalStaticsAchieved = 0;
-    let totalReelsAchieved = 0;
-    let bestMonth = null;
-    let bestScore = 0;
-
-    reports.forEach(report => {
-      totalPosts += report.totalPosted?.statics || 0;
-      totalReels += report.totalPosted?.reels || 0;
-      totalStaticsTarget += report.totalTarget?.statics || 0;
-      totalReelsTarget += report.totalTarget?.reels || 0;
-      totalStaticsAchieved += report.percentageAchieved?.statics || 0;
-      totalReelsAchieved += report.percentageAchieved?.reels || 0;
-
-      const score = ((report.percentageAchieved?.statics || 0) + (report.percentageAchieved?.reels || 0)) / 2;
-      if (score > bestScore) {
-        bestScore = score;
-        bestMonth = report.month;
+      data: {
+        overall: {
+          totalStaticTarget: totalAllStaticTarget,
+          totalReelsTarget: totalAllReelsTarget,
+          totalStaticCompleted: totalAllStaticCompleted,
+          totalReelsCompleted: totalAllReelsCompleted,
+          overallCompletionRate,
+          totalReports: reports.length,
+          totalWeeks: reports.reduce((sum, r) => sum + (r.weeks?.length || 0), 0)
+        },
+        monthlyStats: Object.values(monthlyStats).filter(m => m.reportsCount > 0),
+        bestMonth,
+        worstMonth,
+        year: year || 'all'
       }
     });
-
-    const dashboardStats = {
-      totalReports: reports.length,
-      totalPosts,
-      totalReels,
-      totalContent: totalPosts + totalReels,
-      averageStaticsAchievement: reports.length > 0 ? (totalStaticsAchieved / reports.length).toFixed(1) : 0,
-      averageReelsAchievement: reports.length > 0 ? (totalReelsAchieved / reports.length).toFixed(1) : 0,
-      overallAchievement: reports.length > 0 
-        ? ((totalStaticsAchieved + totalReelsAchieved) / (reports.length * 2)).toFixed(1) 
-        : 0,
-      targetCompletion: totalStaticsTarget > 0 
-        ? ((totalPosts / totalStaticsTarget) * 100).toFixed(1) 
-        : 0,
-      bestMonth,
-      clientInfo: {
-        name: clientInfo?.businessName,
-        instagramHandle: clientInfo?.instagramHandle,
-        businessType: clientInfo?.businessType,
-      },
-      monthlyTrend: reports.map(r => ({
-        month: r.month,
-        achievement: ((r.percentageAchieved?.statics || 0) + (r.percentageAchieved?.reels || 0)) / 2,
-        posts: r.totalPosted?.statics || 0,
-        reels: r.totalPosted?.reels || 0,
-      })),
-    };
-
-    res.json({
-      success: true,
-      data: dashboardStats,
-      reports,
-    });
-  } catch (err) {
-    console.error("CLIENT DASHBOARD ERROR:", err);
+    
+  } catch (error) {
+    console.error('Error in getClientReportStatistics:', error);
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: 'Server Error',
+      error: error.message
     });
   }
 };
 
-// ✅ EXPORT ALL FUNCTIONS - FIXED
+// Export all functions
 module.exports = {
-  createReport: exports.createReport,
-  getReports: exports.getReports,
-  getReportById: exports.getReportById,
-  getReportByClient: exports.getReportByClient,
-  updateReport: exports.updateReport,
-  deleteReport: exports.deleteReport,
-  bulkDeleteReports: exports.bulkDeleteReports,
-  getMonthlySummary: exports.getMonthlySummary,
-  getPerformanceAnalytics: exports.getPerformanceAnalytics,
-  getClientDashboard: exports.getClientDashboard,
+  getAllReports,
+  getReportById,
+  createOrUpdateReport,
+  updateWeek,
+  addPostToWeek,
+  updatePostInWeek,
+  deletePostFromWeek,
+  deleteReport,
+  getReportsByBusinessAccount,
+  getBusinessMonthlySummary,
+  addWeek,
+  getMonthlyStatistics,
+  getClientReports,
+  getClientReportById,
+  getClientReportStatistics
 };

@@ -1,167 +1,183 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
-// Schema for individual post/reel details
-const contentItemSchema = new mongoose.Schema(
-  {
-    title: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    link: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    postedDate: {
-      type: Date,
-      default: Date.now,
-    },
+const weeklyReportSchema = new mongoose.Schema({
+  businessAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "BusinessAccount",
+    required: true,
   },
-  { _id: false }
-);
-
-const weeklyDataSchema = new mongoose.Schema(
-  {
+  month: {
+    type: String,
+    required: true,
+    enum: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  },
+  year: {
+    type: Number,
+    required: true,
+    default: new Date().getFullYear()
+  },
+  totalStaticTarget: {
+    type: Number,
+    default: 0
+  },
+  totalReelsTarget: {
+    type: Number,
+    default: 0
+  },
+  totalStaticCompleted: {
+    type: Number,
+    default: 0
+  },
+  totalReelsCompleted: {
+    type: Number,
+    default: 0
+  },
+  overallProgress: {
+    type: Number,
+    default: 0
+  },
+  weeks: [{
     weekNumber: {
       type: Number,
       required: true,
-      min: 1,
-      max: 5,
+      enum: [1, 2, 3, 4, 5]  // Support for Week 5
     },
-    target: {
-      statics: { 
-        type: Number, 
-        default: 0, 
-        min: 0,
-      },
-      reels: { 
-        type: Number, 
-        default: 0, 
-        min: 0,
-      },
+    weekStartDate: Date,
+    weekEndDate: Date,
+    staticTarget: {
+      type: Number,
+      default: 0
     },
-    posted: {
-      statics: { 
-        type: Number, 
-        default: 0, 
-        min: 0,
-      },
-      reels: { 
-        type: Number, 
-        default: 0, 
-        min: 0,
-      },
-      posts: {
-        type: [contentItemSchema],
-        default: [],
-      },
-      reelsList: {
-        type: [contentItemSchema],
-        default: [],
-      },
+    reelsTarget: {
+      type: Number,
+      default: 0
     },
-    notes: {
-      type: String,
-      trim: true,
-      default: "",
-      maxlength: [500, 'Notes cannot exceed 500 characters']
+    staticCompleted: {
+      type: Number,
+      default: 0
     },
+    reelsCompleted: {
+      type: Number,
+      default: 0
+    },
+    weekProgress: {
+      type: Number,
+      default: 0
+    },
+    posts: [{
+      title: String,
+      instagramLink: String,
+      postedDate: Date,
+      notes: String,
+      type: {
+        type: String,
+        enum: ['static', 'reel']
+      }
+    }]
+  }],
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
-  { _id: false }
-);
-
-const weeklyReportSchema = new mongoose.Schema(
-  {
-    businessAccount: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "BusinessAccount",
-      required: [true, "Business account is required"],
-    },
-    month: {
-      type: String,
-      required: [true, "Month is required"],
-    },
-    weeklyData: {
-      type: [weeklyDataSchema],
-      required: [true, "Weekly data is required"],
-    },
-    totalPosted: {
-      statics: { type: Number, default: 0, min: 0 },
-      reels: { type: Number, default: 0, min: 0 },
-    },
-    totalTarget: {
-      statics: { type: Number, default: 0, min: 0 },
-      reels: { type: Number, default: 0, min: 0 },
-    },
-    percentageAchieved: {
-      statics: { 
-        type: Number, 
-        default: 0, 
-        min: 0, 
-        max: 100,
-      },
-      reels: { 
-        type: Number, 
-        default: 0, 
-        min: 0, 
-        max: 100,
-      },
-    },
+  createdAt: {
+    type: Date,
+    default: Date.now
   },
-  { 
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
-);
-
-// Virtual for overall achievement
-weeklyReportSchema.virtual("overallAchievement").get(function() {
-  return parseFloat((((this.percentageAchieved?.statics || 0) + 
-                      (this.percentageAchieved?.reels || 0)) / 2).toFixed(1));
 });
 
-// Pre-save middleware to ensure calculations
-weeklyReportSchema.pre("save", function(next) {
-  let totalPostedStatics = 0;
-  let totalPostedReels = 0;
-  let totalTargetStatics = 0;
-  let totalTargetReels = 0;
-
-  this.weeklyData.forEach((week) => {
-    // Auto-set posted counts from arrays if they exist
-    if (week.posted.posts && week.posted.posts.length > 0) {
-      week.posted.statics = week.posted.posts.length;
-    }
-    if (week.posted.reelsList && week.posted.reelsList.length > 0) {
-      week.posted.reels = week.posted.reelsList.length;
-    }
-    
-    totalPostedStatics += week.posted?.statics || 0;
-    totalPostedReels += week.posted?.reels || 0;
-    totalTargetStatics += week.target?.statics || 0;
-    totalTargetReels += week.target?.reels || 0;
-  });
-
-  this.totalPosted = {
-    statics: totalPostedStatics,
-    reels: totalPostedReels,
-  };
-
-  this.totalTarget = {
-    statics: totalTargetStatics,
-    reels: totalTargetReels,
-  };
-
-  this.percentageAchieved = {
-    statics: totalTargetStatics ? parseFloat(((totalPostedStatics / totalTargetStatics) * 100).toFixed(1)) : 0,
-    reels: totalTargetReels ? parseFloat(((totalPostedReels / totalTargetReels) * 100).toFixed(1)) : 0,
-  };
-
+weeklyReportSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  
+  // Calculate all totals before saving
+  this.calculateTotals();
+  this.calculateCompleted();
+  this.calculateProgress();
+  
   next();
 });
 
-const WeeklyReport = mongoose.model("WeeklyReport", weeklyReportSchema);
+// Method to calculate totals from weeks
+weeklyReportSchema.methods.calculateTotals = function() {
+  let totalStatic = 0;
+  let totalReels = 0;
+  
+  this.weeks.forEach(week => {
+    totalStatic += week.staticTarget || 0;
+    totalReels += week.reelsTarget || 0;
+  });
+  
+  this.totalStaticTarget = totalStatic;
+  this.totalReelsTarget = totalReels;
+  
+  return { totalStatic, totalReels };
+};
 
-module.exports = WeeklyReport;
+// Method to calculate completed posts
+weeklyReportSchema.methods.calculateCompleted = function() {
+  let totalStaticCompleted = 0;
+  let totalReelsCompleted = 0;
+  
+  this.weeks.forEach(week => {
+    // Count completed posts per week
+    const staticPosts = week.posts?.filter(post => post.type === 'static').length || 0;
+    const reelPosts = week.posts?.filter(post => post.type === 'reel').length || 0;
+    
+    // Calculate completed (cannot exceed target)
+    week.staticCompleted = Math.min(staticPosts, week.staticTarget || 0);
+    week.reelsCompleted = Math.min(reelPosts, week.reelsTarget || 0);
+    
+    // Calculate week progress
+    const weekTotalTarget = (week.staticTarget || 0) + (week.reelsTarget || 0);
+    const weekTotalCompleted = week.staticCompleted + week.reelsCompleted;
+    week.weekProgress = weekTotalTarget > 0 ? (weekTotalCompleted / weekTotalTarget) * 100 : 0;
+    
+    totalStaticCompleted += week.staticCompleted;
+    totalReelsCompleted += week.reelsCompleted;
+  });
+  
+  this.totalStaticCompleted = totalStaticCompleted;
+  this.totalReelsCompleted = totalReelsCompleted;
+  
+  return { totalStaticCompleted, totalReelsCompleted };
+};
+
+// Method to calculate overall progress
+weeklyReportSchema.methods.calculateProgress = function() {
+  const totalTarget = this.totalStaticTarget + this.totalReelsTarget;
+  const totalCompleted = this.totalStaticCompleted + this.totalReelsCompleted;
+  this.overallProgress = totalTarget > 0 ? (totalCompleted / totalTarget) * 100 : 0;
+  return this.overallProgress;
+};
+
+// Method to get week by number
+weeklyReportSchema.methods.getWeek = function(weekNumber) {
+  return this.weeks.find(w => w.weekNumber === weekNumber);
+};
+
+// Method to add or update week
+weeklyReportSchema.methods.updateWeek = function(weekNumber, weekData) {
+  const weekIndex = this.weeks.findIndex(w => w.weekNumber === weekNumber);
+  
+  if (weekIndex === -1) {
+    // Add new week
+    this.weeks.push({
+      weekNumber,
+      ...weekData,
+      posts: weekData.posts || []
+    });
+  } else {
+    // Update existing week
+    this.weeks[weekIndex] = { ...this.weeks[weekIndex], ...weekData };
+  }
+  
+  this.calculateTotals();
+  this.calculateCompleted();
+  this.calculateProgress();
+};
+
+module.exports = mongoose.model('WeeklyReport', weeklyReportSchema);

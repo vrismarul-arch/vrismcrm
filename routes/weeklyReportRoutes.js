@@ -1,32 +1,56 @@
-const express = require("express");
+const express = require('express');
+const {
+  getAllReports,
+  getReportById,
+  createOrUpdateReport,
+  updateWeek,
+  addPostToWeek,
+  
+  updatePostInWeek,
+  deletePostFromWeek,
+  deleteReport,
+  getReportsByBusinessAccount,
+  getBusinessMonthlySummary,
+  addWeek,
+  getMonthlyStatistics,
+  getClientReports,
+  getClientReportById,
+  getClientReportStatistics
+} = require('../controllers/weeklyReportController');
+
 const router = express.Router();
-const weeklyReportController = require("../controllers/weeklyReportController");
 
-// ✅ GET ALL REPORTS (with filtering and pagination)
-router.get("/", weeklyReportController.getReports);
+// Check if controllers are loaded properly
+console.log('Loading weekly report routes...');
+console.log('Available controllers:', Object.keys(require('../controllers/weeklyReportController')));
 
-// ✅ CREATE REPORT
-router.post("/create", weeklyReportController.createReport);
+// Base routes
+router.route('/')
+  .get(getAllReports)
+  .post(createOrUpdateReport);
 
-// ✅ BULK DELETE REPORTS
-router.delete("/bulk-delete", weeklyReportController.bulkDeleteReports);
+// Business account specific routes
+router.get('/business/:businessAccountId', getReportsByBusinessAccount);
+router.get('/summary/business/:businessAccountId', getBusinessMonthlySummary);
 
-// ✅ GET MONTHLY SUMMARY
-router.get("/monthly-summary", weeklyReportController.getMonthlySummary);
-router.get("/monthly-summary/:year", weeklyReportController.getMonthlySummary);
+// Single report routes
+router.route('/:id')
+  .get(getReportById)
+  .delete(deleteReport);
 
-// ✅ GET PERFORMANCE ANALYTICS
-router.get("/analytics", weeklyReportController.getPerformanceAnalytics);
+// Week routes
+router.route('/:id/week/:weekNumber')
+  .put(updateWeek);
 
-// ✅ GET REPORT BY CLIENT ID
-router.get("/client/:id", weeklyReportController.getReportByClient);
-
-// ✅ GET CLIENT DASHBOARD (For logged-in client)
-router.get("/client-dashboard/:clientId", weeklyReportController.getClientDashboard);
-
-// ✅ GET, UPDATE, DELETE SPECIFIC REPORT
-router.get("/:id", weeklyReportController.getReportById);
-router.put("/:id", weeklyReportController.updateReport);
-router.delete("/:id", weeklyReportController.deleteReport);
+// Post routes
+router.route('/:id/week/:weekNumber/posts')
+  .post(addPostToWeek);
+// Client report routes
+router.get('/client/:businessAccountId', getClientReports);
+router.get('/client/:businessAccountId/statistics', getClientReportStatistics);
+router.get('/client/:businessAccountId/:reportId', getClientReportById);
+router.route('/:id/week/:weekNumber/posts/:postIndex')
+  .put(updatePostInWeek)
+  .delete(deletePostFromWeek);
 
 module.exports = router;
