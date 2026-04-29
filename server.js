@@ -11,18 +11,41 @@ const connectDB = require("./config/db");
 
 // Auto Overtime Cron
 const checkOvertimeAlerts = require("./utils/workOvertimeChecker");
-const checkRenewalAlerts = require("./utils/subscriptionRenewalReminder"); // ⭐ ADDED
+const checkRenewalAlerts = require("./utils/subscriptionRenewalReminder");
 const User = require("./models/User");
 
 const app = express();
 
-/* ⭐ CORS */
-app.use(cors({
-  origin: ["https://vrismcrm.netlify.app", "http://localhost:5173","https://crm.vrismcloud.com","http://localhost:8081"],
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
-}));
+/* ⭐ CORS — supports Web + Expo Mobile */
+const allowedOrigins = [
+  "https://vrismcrm.netlify.app",
+  "http://localhost:5173",
+  "https://crm.vrismcloud.com",
+  "http://localhost:8081",
+  "http://localhost:19006",
+];
 
+const corsOptions = {
+  origin: function (origin, callback) {
+    // ✅ Allow: no origin (native mobile / Postman)
+    // ✅ Allow: whitelisted origins
+    // ✅ Allow: Expo LAN — exp://192.168.x.x:xxxx
+    if (
+      !origin ||
+      allowedOrigins.includes(origin) ||
+      /^exp:\/\/192\.168\.\d+\.\d+/.test(origin)
+    ) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS: " + origin));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // ⭐ API ROUTES
@@ -48,10 +71,10 @@ app.use("/api/subscriptions", require("./routes/subscriptionRoutes"));
 app.use("/api/workflow", require("./routes/workflowRoutes"));
 app.use("/api/steps", require("./routes/processStepRoutes"));
 app.use("/api/reports", require("./routes/weeklyReportRoutes"));
+app.use("/api/public-holidays", require("./routes/publicHolidayRoutes"));
 
-app.use('/api/public-holidays', require('./routes/publicHolidayRoutes'));
 app.get("/api/test", (req, res) => res.json({ message: "Server OK 🚀" }));
-//
+
 /* =====================================================
       CRON JOBS
 ===================================================== */
@@ -68,14 +91,29 @@ cron.schedule("0 0 * * *", () => {
   checkRenewalAlerts();
 });
 
-/* SOCKET.IO SERVER */
+/* =====================================================
+      SOCKET.IO SERVER
+===================================================== */
 const httpServer = http.createServer(app);
+
 const io = new Server(httpServer, {
   cors: {
-    origin: ["https://vrismcrm.netlify.app", "http://localhost:5173","https://crm.vrismcloud.com"],
-    methods: ["GET", "POST"]
-  }
+    origin: function (origin, callback) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        /^exp:\/\/192\.168\.\d+\.\d+/.test(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error("Socket CORS blocked: " + origin));
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
 });
+
 global._io = io;
 
 io.on("connection", (socket) => {
@@ -107,7 +145,7 @@ io.on("connection", (socket) => {
 
     await User.findByIdAndUpdate(userId, {
       presence,
-      lastActiveAt: new Date()
+      lastActiveAt: new Date(),
     });
 
     io.emit("presence_updated", { userId, presence });
