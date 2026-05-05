@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const WeeklyReport = require('../models/WeeklyReport');
 
-// @desc    Get all reports with filters
+// @desc    Get all reports with filters (with services)
 // @route   GET /api/reports
 // @access  Public
 const getAllReports = async (req, res) => {
@@ -16,18 +16,23 @@ const getAllReports = async (req, res) => {
     const reports = await WeeklyReport.find(filter)
       .populate('businessAccount', 'businessName email phone')
       .populate('createdBy', 'name email')
+      .populate('services', 'serviceName isActive gstRate')
       .sort({ year: -1, month: -1, createdAt: -1 });
     
-    const reportsWithSummary = reports.map(report => ({
-      ...report.toObject(),
-      summary: {
-        totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
-        totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
-        progressPercentage: report.overallProgress || 0,
-        weeksCompleted: report.weeks?.filter(w => w.weekProgress === 100).length || 0,
-        totalWeeks: report.weeks?.length || 0
-      }
-    }));
+    const reportsWithSummary = reports.map(report => {
+      const reportObj = report.toObject();
+      return {
+        ...reportObj,
+        serviceDetails: report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {},
+        summary: {
+          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
+          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
+          progressPercentage: report.overallProgress || 0,
+          weeksCompleted: report.weeks?.filter(w => w.weekProgress === 100).length || 0,
+          totalWeeks: report.weeks?.length || 0
+        }
+      };
+    });
     
     res.status(200).json({
       success: true,
@@ -44,7 +49,7 @@ const getAllReports = async (req, res) => {
   }
 };
 
-// @desc    Get single report by ID
+// @desc    Get single report by ID (with services)
 // @route   GET /api/reports/:id
 // @access  Public
 const getReportById = async (req, res) => {
@@ -60,7 +65,8 @@ const getReportById = async (req, res) => {
     
     const report = await WeeklyReport.findById(id)
       .populate('businessAccount', 'businessName email phone address')
-      .populate('createdBy', 'name email');
+      .populate('createdBy', 'name email')
+      .populate('services', 'serviceName isActive gstRate plans features');
     
     if (!report) {
       return res.status(404).json({
@@ -69,12 +75,17 @@ const getReportById = async (req, res) => {
       });
     }
     
+    const reportObj = report.toObject();
+    reportObj.serviceDetails = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
+    
     const monthlySummary = {
       totalStaticTarget: report.totalStaticTarget || 0,
       totalReelsTarget: report.totalReelsTarget || 0,
       totalStaticCompleted: report.totalStaticCompleted || 0,
       totalReelsCompleted: report.totalReelsCompleted || 0,
       overallProgress: report.overallProgress || 0,
+      services: report.services,
+      serviceDetails: reportObj.serviceDetails,
       weeksData: report.weeks?.map(week => ({
         weekNumber: week.weekNumber,
         staticTarget: week.staticTarget || 0,
@@ -88,7 +99,7 @@ const getReportById = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      data: report,
+      data: reportObj,
       summary: monthlySummary
     });
   } catch (error) {
@@ -101,12 +112,20 @@ const getReportById = async (req, res) => {
   }
 };
 
-// @desc    Create or update weekly report
+// @desc    Create or update weekly report (with services)
 // @route   POST /api/reports
 // @access  Public
 const createOrUpdateReport = async (req, res) => {
   try {
-    const { businessAccount, month, year, weeks, createdBy } = req.body;
+    const { 
+      businessAccount, 
+      month, 
+      year, 
+      weeks, 
+      services,
+      serviceDetails,
+      createdBy 
+    } = req.body;
     
     if (!businessAccount || !month || !year) {
       return res.status(400).json({
@@ -125,16 +144,32 @@ const createOrUpdateReport = async (req, res) => {
     let report = await WeeklyReport.findOne({ businessAccount, month, year });
     
     if (report) {
-      report.weeks = weeks || report.weeks;
+      // Update existing report
+      if (weeks) report.weeks = weeks;
+      if (services) report.services = services;
+      
+      // Handle serviceDetails as Map
+      if (serviceDetails) {
+        const detailsMap = new Map();
+        Object.entries(serviceDetails).forEach(([key, value]) => {
+          detailsMap.set(key, value);
+        });
+        report.serviceDetails = detailsMap;
+      }
+      
       await report.save();
       
       await report.populate('businessAccount', 'businessName');
       await report.populate('createdBy', 'name email');
+      await report.populate('services', 'serviceName isActive gstRate');
+      
+      const reportObj = report.toObject();
+      reportObj.serviceDetails = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
       
       return res.status(200).json({
         success: true,
         message: 'Report updated successfully',
-        data: report,
+        data: reportObj,
         summary: {
           totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
           totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
@@ -142,11 +177,21 @@ const createOrUpdateReport = async (req, res) => {
         }
       });
     } else {
+      // Create new report
+      const detailsMap = new Map();
+      if (serviceDetails) {
+        Object.entries(serviceDetails).forEach(([key, value]) => {
+          detailsMap.set(key, value);
+        });
+      }
+      
       report = new WeeklyReport({
         businessAccount,
         month,
         year,
         weeks: weeks || [],
+        services: services || [],
+        serviceDetails: detailsMap,
         createdBy: createdBy || req.user?._id
       });
       
@@ -154,11 +199,15 @@ const createOrUpdateReport = async (req, res) => {
       
       await report.populate('businessAccount', 'businessName');
       await report.populate('createdBy', 'name email');
+      await report.populate('services', 'serviceName isActive gstRate');
+      
+      const reportObj = report.toObject();
+      reportObj.serviceDetails = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
       
       return res.status(201).json({
         success: true,
         message: 'Report created successfully',
-        data: report,
+        data: reportObj,
         summary: {
           totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
           totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
@@ -168,6 +217,64 @@ const createOrUpdateReport = async (req, res) => {
     }
   } catch (error) {
     console.error('Error in createOrUpdateReport:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update report services only
+// @route   PUT /api/reports/:id/services
+// @access  Public
+const updateReportServices = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { services, serviceDetails } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
+    }
+    
+    const report = await WeeklyReport.findById(id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+    
+    if (services !== undefined) {
+      report.services = services;
+    }
+    
+    if (serviceDetails) {
+      const detailsMap = new Map();
+      Object.entries(serviceDetails).forEach(([key, value]) => {
+        detailsMap.set(key, value);
+      });
+      report.serviceDetails = detailsMap;
+    }
+    
+    await report.save();
+    
+    await report.populate('services', 'serviceName isActive gstRate');
+    
+    const reportObj = report.toObject();
+    reportObj.serviceDetails = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
+    
+    res.status(200).json({
+      success: true,
+      message: 'Service details updated successfully',
+      data: reportObj
+    });
+    
+  } catch (error) {
+    console.error('Error in updateReportServices:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
@@ -460,7 +567,7 @@ const deleteReport = async (req, res) => {
   }
 };
 
-// @desc    Get reports by business account
+// @desc    Get reports by business account (with services)
 // @route   GET /api/reports/business/:businessAccountId
 // @access  Public
 const getReportsByBusinessAccount = async (req, res) => {
@@ -480,12 +587,21 @@ const getReportsByBusinessAccount = async (req, res) => {
     
     const reports = await WeeklyReport.find(filter)
       .populate('createdBy', 'name email')
+      .populate('services', 'serviceName isActive gstRate')
       .sort({ year: -1, month: -1 });
+    
+    const reportsWithServices = reports.map(report => {
+      const reportObj = report.toObject();
+      return {
+        ...reportObj,
+        serviceDetails: report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {}
+      };
+    });
     
     res.status(200).json({
       success: true,
       count: reports.length,
-      data: reports
+      data: reportsWithServices
     });
   } catch (error) {
     console.error('Error in getReportsByBusinessAccount:', error);
@@ -669,7 +785,7 @@ const getMonthlyStatistics = async (req, res) => {
 };
 
 // ==================== CLIENT REPORT FUNCTIONS ====================
-// @desc    Get client reports with complete details including posts
+// @desc    Get client reports with complete details including posts and services
 // @route   GET /api/reports/client/:businessAccountId
 // @access  Public
 const getClientReports = async (req, res) => {
@@ -685,6 +801,7 @@ const getClientReports = async (req, res) => {
     
     const reports = await WeeklyReport.find({ businessAccount: businessAccountId })
       .populate('businessAccount', 'businessName email phone')
+      .populate('services', 'serviceName isActive gstRate plans features')
       .sort({ year: -1, month: -1 });
     
     if (!reports || reports.length === 0) {
@@ -703,21 +820,19 @@ const getClientReports = async (req, res) => {
       let allPosts = [];
       let allReels = [];
       
+      // Get service details as plain object
+      const serviceDetailsObj = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
+      
       const weeklyData = (report.weeks || []).map(week => {
-        // Get posts from week.posts array (this is where your actual data is)
         const weekPosts = week.posts || [];
-        
-        // Separate static posts and reels based on type
         const staticPostsList = weekPosts.filter(p => p.type === 'static' || p.type === 'post' || !p.type);
         const reelsPostsList = weekPosts.filter(p => p.type === 'reels' || p.type === 'reel');
         
-        // Update totals
         totalStaticTarget += week.staticTarget || 0;
         totalReelsTarget += week.reelsTarget || 0;
         totalStaticCompleted += staticPostsList.length;
         totalReelsCompleted += reelsPostsList.length;
         
-        // Format posts for client view
         const formattedPosts = staticPostsList.map(p => ({
           id: p._id,
           title: p.title || 'Untitled Post',
@@ -727,7 +842,6 @@ const getClientReports = async (req, res) => {
           type: p.type || 'static'
         }));
         
-        // Format reels for client view
         const formattedReels = reelsPostsList.map(p => ({
           id: p._id,
           title: p.title || 'Untitled Reel',
@@ -737,11 +851,9 @@ const getClientReports = async (req, res) => {
           type: p.type || 'reels'
         }));
         
-        // Add to all collections
         allPosts = [...allPosts, ...formattedPosts];
         allReels = [...allReels, ...formattedReels];
         
-        // Calculate week progress
         const weekTotalTarget = (week.staticTarget || 0) + (week.reelsTarget || 0);
         const weekTotalCompleted = staticPostsList.length + reelsPostsList.length;
         const weekProgress = weekTotalTarget > 0 ? (weekTotalCompleted / weekTotalTarget) * 100 : 0;
@@ -765,7 +877,6 @@ const getClientReports = async (req, res) => {
         };
       });
       
-      // Calculate overall percentages
       const totalTarget = totalStaticTarget + totalReelsTarget;
       const totalCompleted = totalStaticCompleted + totalReelsCompleted;
       const staticPercentage = totalStaticTarget > 0 ? (totalStaticCompleted / totalStaticTarget) * 100 : 0;
@@ -777,6 +888,8 @@ const getClientReports = async (req, res) => {
         month: report.month,
         year: report.year,
         businessAccount: report.businessAccount,
+        services: report.services,
+        serviceDetails: serviceDetailsObj,
         totalTarget: {
           statics: totalStaticTarget,
           reels: totalReelsTarget,
@@ -818,7 +931,7 @@ const getClientReports = async (req, res) => {
   }
 };
 
-// @desc    Get single client report with full details including all posts
+// @desc    Get single client report with full details including posts and services
 // @route   GET /api/reports/client/:businessAccountId/:reportId
 // @access  Public
 const getClientReportById = async (req, res) => {
@@ -836,7 +949,9 @@ const getClientReportById = async (req, res) => {
     const report = await WeeklyReport.findOne({
       _id: reportId,
       businessAccount: businessAccountId
-    }).populate('businessAccount', 'businessName email phone address');
+    })
+    .populate('businessAccount', 'businessName email phone address')
+    .populate('services', 'serviceName isActive gstRate plans features');
     
     if (!report) {
       return res.status(404).json({
@@ -852,11 +967,10 @@ const getClientReportById = async (req, res) => {
     let allPosts = [];
     let allReels = [];
     
+    const serviceDetailsObj = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
+    
     const weeklyData = (report.weeks || []).map(week => {
-      // Get posts from week.posts array
       const weekPosts = week.posts || [];
-      
-      // Separate by type
       const staticPostsList = weekPosts.filter(p => p.type === 'static' || p.type === 'post' || !p.type);
       const reelsPostsList = weekPosts.filter(p => p.type === 'reels' || p.type === 'reel');
       
@@ -925,6 +1039,8 @@ const getClientReportById = async (req, res) => {
         email: report.businessAccount.email,
         phone: report.businessAccount.phone
       },
+      services: report.services,
+      serviceDetails: serviceDetailsObj,
       summary: {
         totalStaticTarget,
         totalReelsTarget,
@@ -978,7 +1094,9 @@ const getClientReportStatistics = async (req, res) => {
     let filter = { businessAccount: businessAccountId };
     if (year) filter.year = parseInt(year);
     
-    const reports = await WeeklyReport.find(filter).sort({ year: 1, month: 1 });
+    const reports = await WeeklyReport.find(filter)
+      .populate('services', 'serviceName')
+      .sort({ year: 1, month: 1 });
     
     const monthlyStats = {};
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 
@@ -992,7 +1110,8 @@ const getClientReportStatistics = async (req, res) => {
         totalStaticCompleted: 0,
         totalReelsCompleted: 0,
         completionRate: 0,
-        reportsCount: 0
+        reportsCount: 0,
+        services: []
       };
     });
     
@@ -1000,6 +1119,7 @@ const getClientReportStatistics = async (req, res) => {
     let totalAllReelsTarget = 0;
     let totalAllStaticCompleted = 0;
     let totalAllReelsCompleted = 0;
+    const allServicesMap = new Map();
     
     reports.forEach(report => {
       const stats = monthlyStats[report.month];
@@ -1019,6 +1139,15 @@ const getClientReportStatistics = async (req, res) => {
         totalAllReelsTarget += reelsTarget;
         totalAllStaticCompleted += staticCompleted;
         totalAllReelsCompleted += reelsCompleted;
+        
+        // Track services
+        if (report.services) {
+          report.services.forEach(service => {
+            if (!allServicesMap.has(service._id.toString())) {
+              allServicesMap.set(service._id.toString(), service.serviceName);
+            }
+          });
+        }
       }
     });
     
@@ -1049,7 +1178,8 @@ const getClientReportStatistics = async (req, res) => {
           totalReelsCompleted: totalAllReelsCompleted,
           overallCompletionRate,
           totalReports: reports.length,
-          totalWeeks: reports.reduce((sum, r) => sum + (r.weeks?.length || 0), 0)
+          totalWeeks: reports.reduce((sum, r) => sum + (r.weeks?.length || 0), 0),
+          servicesList: Array.from(allServicesMap.values())
         },
         monthlyStats: Object.values(monthlyStats).filter(m => m.reportsCount > 0),
         bestMonth,
@@ -1073,6 +1203,7 @@ module.exports = {
   getAllReports,
   getReportById,
   createOrUpdateReport,
+  updateReportServices,
   updateWeek,
   addPostToWeek,
   updatePostInWeek,

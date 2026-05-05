@@ -3,9 +3,9 @@ const {
   getAllReports,
   getReportById,
   createOrUpdateReport,
+  updateReportServices,  // ADD THIS - missing import
   updateWeek,
   addPostToWeek,
-  
   updatePostInWeek,
   deletePostFromWeek,
   deleteReport,
@@ -20,10 +20,6 @@ const {
 
 const router = express.Router();
 
-// Check if controllers are loaded properly
-console.log('Loading weekly report routes...');
-console.log('Available controllers:', Object.keys(require('../controllers/weeklyReportController')));
-
 // Base routes
 router.route('/')
   .get(getAllReports)
@@ -36,19 +32,31 @@ router.get('/summary/business/:businessAccountId', getBusinessMonthlySummary);
 // Single report routes
 router.route('/:id')
   .get(getReportById)
+  .put(createOrUpdateReport)  // ADD THIS - for updating entire report
   .delete(deleteReport);
+
+// Service routes for report
+router.route('/:id/services')
+  .put(updateReportServices);  // ADD THIS - for updating services only
 
 // Week routes
 router.route('/:id/week/:weekNumber')
   .put(updateWeek);
 
+// Add week route
+router.route('/:id/week')
+  .post(addWeek);
+
 // Post routes
 router.route('/:id/week/:weekNumber/posts')
   .post(addPostToWeek);
+
 // Client report routes
 router.get('/client/:businessAccountId', getClientReports);
 router.get('/client/:businessAccountId/statistics', getClientReportStatistics);
 router.get('/client/:businessAccountId/:reportId', getClientReportById);
+
+// Single post routes (move these AFTER the specific routes to avoid conflicts)
 router.route('/:id/week/:weekNumber/posts/:postIndex')
   .put(updatePostInWeek)
   .delete(deletePostFromWeek);

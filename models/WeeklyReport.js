@@ -1,5 +1,27 @@
 const mongoose = require('mongoose');
 
+// Service details schema for each selected service
+const serviceDetailSchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ['pending', 'in-progress', 'completed', 'cancelled'],
+    default: 'pending'
+  },
+  price: {
+    type: Number,
+    default: 0
+  },
+  notes: {
+    type: String,
+    default: ''
+  },
+  lifecycleStatus: {
+    type: String,
+    enum: ['active', 'inactive', 'live', 'not-live'],
+    default: 'active'
+  }
+}, { _id: false });
+
 const weeklyReportSchema = new mongoose.Schema({
   businessAccount: {
     type: mongoose.Schema.Types.ObjectId,
@@ -15,6 +37,17 @@ const weeklyReportSchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: new Date().getFullYear()
+  },
+  // NEW: Services array
+  services: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "BrandService"
+  }],
+  // NEW: Service details map
+  serviceDetails: {
+    type: Map,
+    of: serviceDetailSchema,
+    default: new Map()
   },
   totalStaticTarget: {
     type: Number,
@@ -40,7 +73,7 @@ const weeklyReportSchema = new mongoose.Schema({
     weekNumber: {
       type: Number,
       required: true,
-      enum: [1, 2, 3, 4, 5]  // Support for Week 5
+      enum: [1, 2, 3, 4, 5]
     },
     weekStartDate: Date,
     weekEndDate: Date,
