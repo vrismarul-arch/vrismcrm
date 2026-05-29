@@ -25,8 +25,10 @@ const getAllReports = async (req, res) => {
         ...reportObj,
         serviceDetails: report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {},
         summary: {
-          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
-          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
+          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0) + 
+                       (report.totalYouTubeShortsTarget || 0) + (report.totalYouTubeVideoTarget || 0),
+          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0) + 
+                          (report.totalYouTubeShortsCompleted || 0) + (report.totalYouTubeVideoCompleted || 0),
           progressPercentage: report.overallProgress || 0,
           weeksCompleted: report.weeks?.filter(w => w.weekProgress === 100).length || 0,
           totalWeeks: report.weeks?.length || 0
@@ -81,8 +83,12 @@ const getReportById = async (req, res) => {
     const monthlySummary = {
       totalStaticTarget: report.totalStaticTarget || 0,
       totalReelsTarget: report.totalReelsTarget || 0,
+      totalYouTubeShortsTarget: report.totalYouTubeShortsTarget || 0,
+      totalYouTubeVideoTarget: report.totalYouTubeVideoTarget || 0,
       totalStaticCompleted: report.totalStaticCompleted || 0,
       totalReelsCompleted: report.totalReelsCompleted || 0,
+      totalYouTubeShortsCompleted: report.totalYouTubeShortsCompleted || 0,
+      totalYouTubeVideoCompleted: report.totalYouTubeVideoCompleted || 0,
       overallProgress: report.overallProgress || 0,
       services: report.services,
       serviceDetails: reportObj.serviceDetails,
@@ -90,8 +96,12 @@ const getReportById = async (req, res) => {
         weekNumber: week.weekNumber,
         staticTarget: week.staticTarget || 0,
         reelsTarget: week.reelsTarget || 0,
+        youtubeShortsTarget: week.youtubeShortsTarget || 0,
+        youtubeVideoTarget: week.youtubeVideoTarget || 0,
         staticCompleted: week.staticCompleted || 0,
         reelsCompleted: week.reelsCompleted || 0,
+        youtubeShortsCompleted: week.youtubeShortsCompleted || 0,
+        youtubeVideoCompleted: week.youtubeVideoCompleted || 0,
         weekProgress: week.weekProgress || 0,
         postsCount: week.posts?.length || 0
       })) || []
@@ -124,7 +134,11 @@ const createOrUpdateReport = async (req, res) => {
       weeks, 
       services,
       serviceDetails,
-      createdBy 
+      createdBy,
+      totalStaticTarget,
+      totalReelsTarget,
+      totalYouTubeShortsTarget,
+      totalYouTubeVideoTarget
     } = req.body;
     
     if (!businessAccount || !month || !year) {
@@ -147,6 +161,10 @@ const createOrUpdateReport = async (req, res) => {
       // Update existing report
       if (weeks) report.weeks = weeks;
       if (services) report.services = services;
+      if (totalStaticTarget !== undefined) report.totalStaticTarget = totalStaticTarget;
+      if (totalReelsTarget !== undefined) report.totalReelsTarget = totalReelsTarget;
+      if (totalYouTubeShortsTarget !== undefined) report.totalYouTubeShortsTarget = totalYouTubeShortsTarget;
+      if (totalYouTubeVideoTarget !== undefined) report.totalYouTubeVideoTarget = totalYouTubeVideoTarget;
       
       // Handle serviceDetails as Map
       if (serviceDetails) {
@@ -156,6 +174,11 @@ const createOrUpdateReport = async (req, res) => {
         });
         report.serviceDetails = detailsMap;
       }
+      
+      // Recalculate all totals
+      report.calculateTotals();
+      report.calculateCompleted();
+      report.calculateProgress();
       
       await report.save();
       
@@ -171,8 +194,10 @@ const createOrUpdateReport = async (req, res) => {
         message: 'Report updated successfully',
         data: reportObj,
         summary: {
-          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
-          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
+          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0) + 
+                       (report.totalYouTubeShortsTarget || 0) + (report.totalYouTubeVideoTarget || 0),
+          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0) + 
+                          (report.totalYouTubeShortsCompleted || 0) + (report.totalYouTubeVideoCompleted || 0),
           progress: report.overallProgress || 0
         }
       });
@@ -192,8 +217,17 @@ const createOrUpdateReport = async (req, res) => {
         weeks: weeks || [],
         services: services || [],
         serviceDetails: detailsMap,
+        totalStaticTarget: totalStaticTarget || 0,
+        totalReelsTarget: totalReelsTarget || 0,
+        totalYouTubeShortsTarget: totalYouTubeShortsTarget || 0,
+        totalYouTubeVideoTarget: totalYouTubeVideoTarget || 0,
         createdBy: createdBy || req.user?._id
       });
+      
+      // Recalculate totals
+      report.calculateTotals();
+      report.calculateCompleted();
+      report.calculateProgress();
       
       await report.save();
       
@@ -209,8 +243,10 @@ const createOrUpdateReport = async (req, res) => {
         message: 'Report created successfully',
         data: reportObj,
         summary: {
-          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0),
-          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0),
+          totalTarget: (report.totalStaticTarget || 0) + (report.totalReelsTarget || 0) + 
+                       (report.totalYouTubeShortsTarget || 0) + (report.totalYouTubeVideoTarget || 0),
+          totalCompleted: (report.totalStaticCompleted || 0) + (report.totalReelsCompleted || 0) + 
+                          (report.totalYouTubeShortsCompleted || 0) + (report.totalYouTubeVideoCompleted || 0),
           progress: report.overallProgress || 0
         }
       });
@@ -289,7 +325,7 @@ const updateReportServices = async (req, res) => {
 const updateWeek = async (req, res) => {
   try {
     const { id, weekNumber } = req.params;
-    const { staticTarget, reelsTarget, posts, weekStartDate, weekEndDate } = req.body;
+    const { staticTarget, reelsTarget, youtubeShortsTarget, youtubeVideoTarget, posts, weekStartDate, weekEndDate } = req.body;
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -317,6 +353,8 @@ const updateWeek = async (req, res) => {
     
     if (staticTarget !== undefined) report.weeks[weekIndex].staticTarget = staticTarget;
     if (reelsTarget !== undefined) report.weeks[weekIndex].reelsTarget = reelsTarget;
+    if (youtubeShortsTarget !== undefined) report.weeks[weekIndex].youtubeShortsTarget = youtubeShortsTarget;
+    if (youtubeVideoTarget !== undefined) report.weeks[weekIndex].youtubeVideoTarget = youtubeVideoTarget;
     if (posts !== undefined) report.weeks[weekIndex].posts = posts;
     if (weekStartDate !== undefined) report.weeks[weekIndex].weekStartDate = weekStartDate;
     if (weekEndDate !== undefined) report.weeks[weekIndex].weekEndDate = weekEndDate;
@@ -347,7 +385,7 @@ const updateWeek = async (req, res) => {
 const addPostToWeek = async (req, res) => {
   try {
     const { id, weekNumber } = req.params;
-    const { title, instagramLink, postedDate, notes, type } = req.body;
+    const { title, instagramLink, youtubeLink, postedDate, notes, type } = req.body;
     
     if (!title) {
       return res.status(400).json({
@@ -383,6 +421,7 @@ const addPostToWeek = async (req, res) => {
     const newPost = {
       title,
       instagramLink: instagramLink || '',
+      youtubeLink: youtubeLink || '',
       postedDate: postedDate ? new Date(postedDate) : new Date(),
       notes: notes || '',
       type: type || 'static'
@@ -416,7 +455,7 @@ const addPostToWeek = async (req, res) => {
 const updatePostInWeek = async (req, res) => {
   try {
     const { id, weekNumber, postIndex } = req.params;
-    const { title, instagramLink, postedDate, notes, type } = req.body;
+    const { title, instagramLink, youtubeLink, postedDate, notes, type } = req.body;
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -452,6 +491,7 @@ const updatePostInWeek = async (req, res) => {
     
     if (title) post.title = title;
     if (instagramLink !== undefined) post.instagramLink = instagramLink;
+    if (youtubeLink !== undefined) post.youtubeLink = youtubeLink;
     if (postedDate) post.postedDate = new Date(postedDate);
     if (notes !== undefined) post.notes = notes;
     if (type) post.type = type;
@@ -640,8 +680,12 @@ const getBusinessMonthlySummary = async (req, res) => {
       year: report.year,
       totalStaticTarget: report.totalStaticTarget || 0,
       totalReelsTarget: report.totalReelsTarget || 0,
+      totalYouTubeShortsTarget: report.totalYouTubeShortsTarget || 0,
+      totalYouTubeVideoTarget: report.totalYouTubeVideoTarget || 0,
       totalStaticCompleted: report.totalStaticCompleted || 0,
       totalReelsCompleted: report.totalReelsCompleted || 0,
+      totalYouTubeShortsCompleted: report.totalYouTubeShortsCompleted || 0,
+      totalYouTubeVideoCompleted: report.totalYouTubeVideoCompleted || 0,
       overallProgress: report.overallProgress || 0,
       totalPosts: report.weeks?.reduce((sum, week) => sum + (week.posts?.length || 0), 0) || 0,
       weeksCount: report.weeks?.length || 0
@@ -668,7 +712,7 @@ const getBusinessMonthlySummary = async (req, res) => {
 const addWeek = async (req, res) => {
   try {
     const { id } = req.params;
-    const { weekNumber, staticTarget, reelsTarget, weekStartDate, weekEndDate } = req.body;
+    const { weekNumber, staticTarget, reelsTarget, youtubeShortsTarget, youtubeVideoTarget, weekStartDate, weekEndDate } = req.body;
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -697,6 +741,8 @@ const addWeek = async (req, res) => {
       weekNumber,
       staticTarget: staticTarget || 0,
       reelsTarget: reelsTarget || 0,
+      youtubeShortsTarget: youtubeShortsTarget || 0,
+      youtubeVideoTarget: youtubeVideoTarget || 0,
       weekStartDate: weekStartDate || null,
       weekEndDate: weekEndDate || null,
       posts: []
@@ -744,8 +790,12 @@ const getMonthlyStatistics = async (req, res) => {
       monthlyStats[month] = {
         totalStaticTarget: 0,
         totalReelsTarget: 0,
+        totalYouTubeShortsTarget: 0,
+        totalYouTubeVideoTarget: 0,
         totalStaticCompleted: 0,
         totalReelsCompleted: 0,
+        totalYouTubeShortsCompleted: 0,
+        totalYouTubeVideoCompleted: 0,
         reportsCount: 0,
         progress: 0
       };
@@ -756,16 +806,22 @@ const getMonthlyStatistics = async (req, res) => {
       if (stats) {
         stats.totalStaticTarget += report.totalStaticTarget || 0;
         stats.totalReelsTarget += report.totalReelsTarget || 0;
+        stats.totalYouTubeShortsTarget += report.totalYouTubeShortsTarget || 0;
+        stats.totalYouTubeVideoTarget += report.totalYouTubeVideoTarget || 0;
         stats.totalStaticCompleted += report.totalStaticCompleted || 0;
         stats.totalReelsCompleted += report.totalReelsCompleted || 0;
+        stats.totalYouTubeShortsCompleted += report.totalYouTubeShortsCompleted || 0;
+        stats.totalYouTubeVideoCompleted += report.totalYouTubeVideoCompleted || 0;
         stats.reportsCount += 1;
       }
     });
     
     Object.keys(monthlyStats).forEach(month => {
       const stats = monthlyStats[month];
-      const totalTarget = stats.totalStaticTarget + stats.totalReelsTarget;
-      const totalCompleted = stats.totalStaticCompleted + stats.totalReelsCompleted;
+      const totalTarget = stats.totalStaticTarget + stats.totalReelsTarget + 
+                          stats.totalYouTubeShortsTarget + stats.totalYouTubeVideoTarget;
+      const totalCompleted = stats.totalStaticCompleted + stats.totalReelsCompleted + 
+                             stats.totalYouTubeShortsCompleted + stats.totalYouTubeVideoCompleted;
       stats.progress = totalTarget > 0 ? (totalCompleted / totalTarget) * 100 : 0;
     });
     
@@ -815,23 +871,34 @@ const getClientReports = async (req, res) => {
     const formattedReports = reports.map(report => {
       let totalStaticTarget = 0;
       let totalReelsTarget = 0;
+      let totalYouTubeShortsTarget = 0;
+      let totalYouTubeVideoTarget = 0;
       let totalStaticCompleted = 0;
       let totalReelsCompleted = 0;
+      let totalYouTubeShortsCompleted = 0;
+      let totalYouTubeVideoCompleted = 0;
       let allPosts = [];
       let allReels = [];
+      let allYouTubeShorts = [];
+      let allYouTubeVideos = [];
       
-      // Get service details as plain object
       const serviceDetailsObj = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
       
       const weeklyData = (report.weeks || []).map(week => {
         const weekPosts = week.posts || [];
-        const staticPostsList = weekPosts.filter(p => p.type === 'static' || p.type === 'post' || !p.type);
-        const reelsPostsList = weekPosts.filter(p => p.type === 'reels' || p.type === 'reel');
+        const staticPostsList = weekPosts.filter(p => p.type === 'static');
+        const reelsPostsList = weekPosts.filter(p => p.type === 'reel');
+        const youtubeShortsList = weekPosts.filter(p => p.type === 'youtube-shorts');
+        const youtubeVideosList = weekPosts.filter(p => p.type === 'youtube-video');
         
         totalStaticTarget += week.staticTarget || 0;
         totalReelsTarget += week.reelsTarget || 0;
+        totalYouTubeShortsTarget += week.youtubeShortsTarget || 0;
+        totalYouTubeVideoTarget += week.youtubeVideoTarget || 0;
         totalStaticCompleted += staticPostsList.length;
         totalReelsCompleted += reelsPostsList.length;
+        totalYouTubeShortsCompleted += youtubeShortsList.length;
+        totalYouTubeVideoCompleted += youtubeVideosList.length;
         
         const formattedPosts = staticPostsList.map(p => ({
           id: p._id,
@@ -848,14 +915,36 @@ const getClientReports = async (req, res) => {
           link: p.instagramLink || '',
           description: p.notes || '',
           postedDate: p.postedDate,
-          type: p.type || 'reels'
+          type: p.type || 'reel'
+        }));
+        
+        const formattedYouTubeShorts = youtubeShortsList.map(p => ({
+          id: p._id,
+          title: p.title || 'Untitled YouTube Short',
+          link: p.youtubeLink || '',
+          description: p.notes || '',
+          postedDate: p.postedDate,
+          type: p.type || 'youtube-shorts'
+        }));
+        
+        const formattedYouTubeVideos = youtubeVideosList.map(p => ({
+          id: p._id,
+          title: p.title || 'Untitled YouTube Video',
+          link: p.youtubeLink || '',
+          description: p.notes || '',
+          postedDate: p.postedDate,
+          type: p.type || 'youtube-video'
         }));
         
         allPosts = [...allPosts, ...formattedPosts];
         allReels = [...allReels, ...formattedReels];
+        allYouTubeShorts = [...allYouTubeShorts, ...formattedYouTubeShorts];
+        allYouTubeVideos = [...allYouTubeVideos, ...formattedYouTubeVideos];
         
-        const weekTotalTarget = (week.staticTarget || 0) + (week.reelsTarget || 0);
-        const weekTotalCompleted = staticPostsList.length + reelsPostsList.length;
+        const weekTotalTarget = (week.staticTarget || 0) + (week.reelsTarget || 0) + 
+                                (week.youtubeShortsTarget || 0) + (week.youtubeVideoTarget || 0);
+        const weekTotalCompleted = staticPostsList.length + reelsPostsList.length + 
+                                   youtubeShortsList.length + youtubeVideosList.length;
         const weekProgress = weekTotalTarget > 0 ? (weekTotalCompleted / weekTotalTarget) * 100 : 0;
         
         return {
@@ -864,23 +953,31 @@ const getClientReports = async (req, res) => {
           weekEndDate: week.weekEndDate,
           target: {
             statics: week.staticTarget || 0,
-            reels: week.reelsTarget || 0
+            reels: week.reelsTarget || 0,
+            youtubeShorts: week.youtubeShortsTarget || 0,
+            youtubeVideos: week.youtubeVideoTarget || 0
           },
           posted: {
             statics: staticPostsList.length,
             reels: reelsPostsList.length,
+            youtubeShorts: youtubeShortsList.length,
+            youtubeVideos: youtubeVideosList.length,
             posts: formattedPosts,
-            reelsList: formattedReels
+            reelsList: formattedReels,
+            youtubeShortsList: formattedYouTubeShorts,
+            youtubeVideosList: formattedYouTubeVideos
           },
           weekProgress: week.weekProgress || weekProgress,
           notes: week.notes || ""
         };
       });
       
-      const totalTarget = totalStaticTarget + totalReelsTarget;
-      const totalCompleted = totalStaticCompleted + totalReelsCompleted;
+      const totalTarget = totalStaticTarget + totalReelsTarget + totalYouTubeShortsTarget + totalYouTubeVideoTarget;
+      const totalCompleted = totalStaticCompleted + totalReelsCompleted + totalYouTubeShortsCompleted + totalYouTubeVideoCompleted;
       const staticPercentage = totalStaticTarget > 0 ? (totalStaticCompleted / totalStaticTarget) * 100 : 0;
       const reelsPercentage = totalReelsTarget > 0 ? (totalReelsCompleted / totalReelsTarget) * 100 : 0;
+      const youtubeShortsPercentage = totalYouTubeShortsTarget > 0 ? (totalYouTubeShortsCompleted / totalYouTubeShortsTarget) * 100 : 0;
+      const youtubeVideoPercentage = totalYouTubeVideoTarget > 0 ? (totalYouTubeVideoCompleted / totalYouTubeVideoTarget) * 100 : 0;
       const overallPercentage = totalTarget > 0 ? (totalCompleted / totalTarget) * 100 : 0;
       
       return {
@@ -893,23 +990,33 @@ const getClientReports = async (req, res) => {
         totalTarget: {
           statics: totalStaticTarget,
           reels: totalReelsTarget,
+          youtubeShorts: totalYouTubeShortsTarget,
+          youtubeVideos: totalYouTubeVideoTarget,
           total: totalTarget
         },
         totalPosted: {
           statics: totalStaticCompleted,
           reels: totalReelsCompleted,
+          youtubeShorts: totalYouTubeShortsCompleted,
+          youtubeVideos: totalYouTubeVideoCompleted,
           total: totalCompleted
         },
         percentageAchieved: {
           statics: Number(staticPercentage.toFixed(2)),
           reels: Number(reelsPercentage.toFixed(2)),
+          youtubeShorts: Number(youtubeShortsPercentage.toFixed(2)),
+          youtubeVideos: Number(youtubeVideoPercentage.toFixed(2)),
           overall: Number(overallPercentage.toFixed(2))
         },
         weeklyData: weeklyData,
         allPosts: allPosts,
         allReels: allReels,
+        allYouTubeShorts: allYouTubeShorts,
+        allYouTubeVideos: allYouTubeVideos,
         postsCount: allPosts.length,
         reelsCount: allReels.length,
+        youtubeShortsCount: allYouTubeShorts.length,
+        youtubeVideosCount: allYouTubeVideos.length,
         createdAt: report.createdAt,
         updatedAt: report.updatedAt
       };
@@ -931,7 +1038,7 @@ const getClientReports = async (req, res) => {
   }
 };
 
-// @desc    Get single client report with full details including posts and services
+// @desc    Get single client report with full details
 // @route   GET /api/reports/client/:businessAccountId/:reportId
 // @access  Public
 const getClientReportById = async (req, res) => {
@@ -962,22 +1069,34 @@ const getClientReportById = async (req, res) => {
     
     let totalStaticTarget = 0;
     let totalReelsTarget = 0;
+    let totalYouTubeShortsTarget = 0;
+    let totalYouTubeVideoTarget = 0;
     let totalStaticCompleted = 0;
     let totalReelsCompleted = 0;
+    let totalYouTubeShortsCompleted = 0;
+    let totalYouTubeVideoCompleted = 0;
     let allPosts = [];
     let allReels = [];
+    let allYouTubeShorts = [];
+    let allYouTubeVideos = [];
     
     const serviceDetailsObj = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
     
     const weeklyData = (report.weeks || []).map(week => {
       const weekPosts = week.posts || [];
-      const staticPostsList = weekPosts.filter(p => p.type === 'static' || p.type === 'post' || !p.type);
-      const reelsPostsList = weekPosts.filter(p => p.type === 'reels' || p.type === 'reel');
+      const staticPostsList = weekPosts.filter(p => p.type === 'static');
+      const reelsPostsList = weekPosts.filter(p => p.type === 'reel');
+      const youtubeShortsList = weekPosts.filter(p => p.type === 'youtube-shorts');
+      const youtubeVideosList = weekPosts.filter(p => p.type === 'youtube-video');
       
       totalStaticTarget += week.staticTarget || 0;
       totalReelsTarget += week.reelsTarget || 0;
+      totalYouTubeShortsTarget += week.youtubeShortsTarget || 0;
+      totalYouTubeVideoTarget += week.youtubeVideoTarget || 0;
       totalStaticCompleted += staticPostsList.length;
       totalReelsCompleted += reelsPostsList.length;
+      totalYouTubeShortsCompleted += youtubeShortsList.length;
+      totalYouTubeVideoCompleted += youtubeVideosList.length;
       
       const formattedPosts = staticPostsList.map(p => ({
         id: p._id,
@@ -994,14 +1113,36 @@ const getClientReportById = async (req, res) => {
         link: p.instagramLink || '',
         description: p.notes || '',
         postedDate: p.postedDate,
-        type: p.type || 'reels'
+        type: p.type || 'reel'
+      }));
+      
+      const formattedYouTubeShorts = youtubeShortsList.map(p => ({
+        id: p._id,
+        title: p.title || 'Untitled YouTube Short',
+        link: p.youtubeLink || '',
+        description: p.notes || '',
+        postedDate: p.postedDate,
+        type: p.type || 'youtube-shorts'
+      }));
+      
+      const formattedYouTubeVideos = youtubeVideosList.map(p => ({
+        id: p._id,
+        title: p.title || 'Untitled YouTube Video',
+        link: p.youtubeLink || '',
+        description: p.notes || '',
+        postedDate: p.postedDate,
+        type: p.type || 'youtube-video'
       }));
       
       allPosts = [...allPosts, ...formattedPosts];
       allReels = [...allReels, ...formattedReels];
+      allYouTubeShorts = [...allYouTubeShorts, ...formattedYouTubeShorts];
+      allYouTubeVideos = [...allYouTubeVideos, ...formattedYouTubeVideos];
       
-      const weekTotalTarget = (week.staticTarget || 0) + (week.reelsTarget || 0);
-      const weekTotalCompleted = staticPostsList.length + reelsPostsList.length;
+      const weekTotalTarget = (week.staticTarget || 0) + (week.reelsTarget || 0) + 
+                              (week.youtubeShortsTarget || 0) + (week.youtubeVideoTarget || 0);
+      const weekTotalCompleted = staticPostsList.length + reelsPostsList.length + 
+                                 youtubeShortsList.length + youtubeVideosList.length;
       const weekProgress = weekTotalTarget > 0 ? (weekTotalCompleted / weekTotalTarget) * 100 : 0;
       
       return {
@@ -1010,23 +1151,31 @@ const getClientReportById = async (req, res) => {
         weekEndDate: week.weekEndDate,
         target: {
           statics: week.staticTarget || 0,
-          reels: week.reelsTarget || 0
+          reels: week.reelsTarget || 0,
+          youtubeShorts: week.youtubeShortsTarget || 0,
+          youtubeVideos: week.youtubeVideoTarget || 0
         },
         posted: {
           statics: staticPostsList.length,
           reels: reelsPostsList.length,
+          youtubeShorts: youtubeShortsList.length,
+          youtubeVideos: youtubeVideosList.length,
           posts: formattedPosts,
-          reelsList: formattedReels
+          reelsList: formattedReels,
+          youtubeShortsList: formattedYouTubeShorts,
+          youtubeVideosList: formattedYouTubeVideos
         },
         weekProgress: week.weekProgress || weekProgress,
         notes: week.notes || ""
       };
     });
     
-    const totalTarget = totalStaticTarget + totalReelsTarget;
-    const totalCompleted = totalStaticCompleted + totalReelsCompleted;
+    const totalTarget = totalStaticTarget + totalReelsTarget + totalYouTubeShortsTarget + totalYouTubeVideoTarget;
+    const totalCompleted = totalStaticCompleted + totalReelsCompleted + totalYouTubeShortsCompleted + totalYouTubeVideoCompleted;
     const staticPercentage = totalStaticTarget > 0 ? (totalStaticCompleted / totalStaticTarget) * 100 : 0;
     const reelsPercentage = totalReelsTarget > 0 ? (totalReelsCompleted / totalReelsTarget) * 100 : 0;
+    const youtubeShortsPercentage = totalYouTubeShortsTarget > 0 ? (totalYouTubeShortsCompleted / totalYouTubeShortsTarget) * 100 : 0;
+    const youtubeVideoPercentage = totalYouTubeVideoTarget > 0 ? (totalYouTubeVideoCompleted / totalYouTubeVideoTarget) * 100 : 0;
     const overallPercentage = totalTarget > 0 ? (totalCompleted / totalTarget) * 100 : 0;
     
     const formattedReport = {
@@ -1044,19 +1193,29 @@ const getClientReportById = async (req, res) => {
       summary: {
         totalStaticTarget,
         totalReelsTarget,
+        totalYouTubeShortsTarget,
+        totalYouTubeVideoTarget,
         totalTarget,
         totalStaticCompleted,
         totalReelsCompleted,
+        totalYouTubeShortsCompleted,
+        totalYouTubeVideoCompleted,
         totalCompleted,
         staticPercentage: Number(staticPercentage.toFixed(2)),
         reelsPercentage: Number(reelsPercentage.toFixed(2)),
+        youtubeShortsPercentage: Number(youtubeShortsPercentage.toFixed(2)),
+        youtubeVideoPercentage: Number(youtubeVideoPercentage.toFixed(2)),
         overallPercentage: Number(overallPercentage.toFixed(2))
       },
       weeklyData: weeklyData,
       allPosts: allPosts,
       allReels: allReels,
+      allYouTubeShorts: allYouTubeShorts,
+      allYouTubeVideos: allYouTubeVideos,
       postsCount: allPosts.length,
       reelsCount: allReels.length,
+      youtubeShortsCount: allYouTubeShorts.length,
+      youtubeVideosCount: allYouTubeVideos.length,
       createdAt: report.createdAt,
       updatedAt: report.updatedAt
     };
@@ -1107,8 +1266,12 @@ const getClientReportStatistics = async (req, res) => {
         month,
         totalStaticTarget: 0,
         totalReelsTarget: 0,
+        totalYouTubeShortsTarget: 0,
+        totalYouTubeVideoTarget: 0,
         totalStaticCompleted: 0,
         totalReelsCompleted: 0,
+        totalYouTubeShortsCompleted: 0,
+        totalYouTubeVideoCompleted: 0,
         completionRate: 0,
         reportsCount: 0,
         services: []
@@ -1117,8 +1280,12 @@ const getClientReportStatistics = async (req, res) => {
     
     let totalAllStaticTarget = 0;
     let totalAllReelsTarget = 0;
+    let totalAllYouTubeShortsTarget = 0;
+    let totalAllYouTubeVideoTarget = 0;
     let totalAllStaticCompleted = 0;
     let totalAllReelsCompleted = 0;
+    let totalAllYouTubeShortsCompleted = 0;
+    let totalAllYouTubeVideoCompleted = 0;
     const allServicesMap = new Map();
     
     reports.forEach(report => {
@@ -1126,21 +1293,32 @@ const getClientReportStatistics = async (req, res) => {
       if (stats) {
         const staticTarget = (report.weeks || []).reduce((sum, w) => sum + (w.staticTarget || 0), 0);
         const reelsTarget = (report.weeks || []).reduce((sum, w) => sum + (w.reelsTarget || 0), 0);
+        const youtubeShortsTarget = (report.weeks || []).reduce((sum, w) => sum + (w.youtubeShortsTarget || 0), 0);
+        const youtubeVideoTarget = (report.weeks || []).reduce((sum, w) => sum + (w.youtubeVideoTarget || 0), 0);
         const staticCompleted = (report.weeks || []).reduce((sum, w) => sum + (w.staticCompleted || 0), 0);
         const reelsCompleted = (report.weeks || []).reduce((sum, w) => sum + (w.reelsCompleted || 0), 0);
+        const youtubeShortsCompleted = (report.weeks || []).reduce((sum, w) => sum + (w.youtubeShortsCompleted || 0), 0);
+        const youtubeVideoCompleted = (report.weeks || []).reduce((sum, w) => sum + (w.youtubeVideoCompleted || 0), 0);
         
         stats.totalStaticTarget += staticTarget;
         stats.totalReelsTarget += reelsTarget;
+        stats.totalYouTubeShortsTarget += youtubeShortsTarget;
+        stats.totalYouTubeVideoTarget += youtubeVideoTarget;
         stats.totalStaticCompleted += staticCompleted;
         stats.totalReelsCompleted += reelsCompleted;
+        stats.totalYouTubeShortsCompleted += youtubeShortsCompleted;
+        stats.totalYouTubeVideoCompleted += youtubeVideoCompleted;
         stats.reportsCount += 1;
         
         totalAllStaticTarget += staticTarget;
         totalAllReelsTarget += reelsTarget;
+        totalAllYouTubeShortsTarget += youtubeShortsTarget;
+        totalAllYouTubeVideoTarget += youtubeVideoTarget;
         totalAllStaticCompleted += staticCompleted;
         totalAllReelsCompleted += reelsCompleted;
+        totalAllYouTubeShortsCompleted += youtubeShortsCompleted;
+        totalAllYouTubeVideoCompleted += youtubeVideoCompleted;
         
-        // Track services
         if (report.services) {
           report.services.forEach(service => {
             if (!allServicesMap.has(service._id.toString())) {
@@ -1153,13 +1331,17 @@ const getClientReportStatistics = async (req, res) => {
     
     Object.keys(monthlyStats).forEach(month => {
       const stats = monthlyStats[month];
-      const totalTarget = stats.totalStaticTarget + stats.totalReelsTarget;
-      const totalCompleted = stats.totalStaticCompleted + stats.totalReelsCompleted;
+      const totalTarget = stats.totalStaticTarget + stats.totalReelsTarget + 
+                          stats.totalYouTubeShortsTarget + stats.totalYouTubeVideoTarget;
+      const totalCompleted = stats.totalStaticCompleted + stats.totalReelsCompleted + 
+                             stats.totalYouTubeShortsCompleted + stats.totalYouTubeVideoCompleted;
       stats.completionRate = totalTarget > 0 ? Number(((totalCompleted / totalTarget) * 100).toFixed(2)) : 0;
     });
     
-    const totalOverallTarget = totalAllStaticTarget + totalAllReelsTarget;
-    const totalOverallCompleted = totalAllStaticCompleted + totalAllReelsCompleted;
+    const totalOverallTarget = totalAllStaticTarget + totalAllReelsTarget + 
+                               totalAllYouTubeShortsTarget + totalAllYouTubeVideoTarget;
+    const totalOverallCompleted = totalAllStaticCompleted + totalAllReelsCompleted + 
+                                  totalAllYouTubeShortsCompleted + totalAllYouTubeVideoCompleted;
     const overallCompletionRate = totalOverallTarget > 0 ? Number(((totalOverallCompleted / totalOverallTarget) * 100).toFixed(2)) : 0;
     
     const monthsWithData = Object.values(monthlyStats).filter(m => m.reportsCount > 0);
@@ -1174,8 +1356,12 @@ const getClientReportStatistics = async (req, res) => {
         overall: {
           totalStaticTarget: totalAllStaticTarget,
           totalReelsTarget: totalAllReelsTarget,
+          totalYouTubeShortsTarget: totalAllYouTubeShortsTarget,
+          totalYouTubeVideoTarget: totalAllYouTubeVideoTarget,
           totalStaticCompleted: totalAllStaticCompleted,
           totalReelsCompleted: totalAllReelsCompleted,
+          totalYouTubeShortsCompleted: totalAllYouTubeShortsCompleted,
+          totalYouTubeVideoCompleted: totalAllYouTubeVideoCompleted,
           overallCompletionRate,
           totalReports: reports.length,
           totalWeeks: reports.reduce((sum, r) => sum + (r.weeks?.length || 0), 0),
