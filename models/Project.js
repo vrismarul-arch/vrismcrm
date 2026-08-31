@@ -42,8 +42,7 @@ const projectSchema = new mongoose.Schema(
 
     startDate: { type: Date, required: true },
     endDate: Date,
-    accountId: { type: mongoose.Schema.Types.ObjectId, ref: "BusinessAccount", required: true },
-    serviceId: { type: mongoose.Schema.Types.ObjectId, ref: "BrandService", required: true },
+accountId: [{ type: mongoose.Schema.Types.ObjectId, ref: "BusinessAccount", required: true }],    serviceId: { type: mongoose.Schema.Types.ObjectId, ref: "BrandService", required: true },
 
     members: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
