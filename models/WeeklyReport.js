@@ -23,10 +23,19 @@ const serviceDetailSchema = new mongoose.Schema({
 }, { _id: false });
 
 const weeklyReportSchema = new mongoose.Schema({
+  // 🆕 Multiple business accounts: a report can now belong to more than
+  // one business account (multi-select on the frontend). Kept the field
+  // name `businessAccount` (singular) for backward compatibility with
+  // existing queries/populate calls — it is simply an ARRAY now.
   businessAccount: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "BusinessAccount",
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: "BusinessAccount" }],
     required: true,
+    validate: {
+      validator: function (arr) {
+        return Array.isArray(arr) && arr.length > 0;
+      },
+      message: "At least one business account is required",
+    },
   },
   month: {
     type: String,
@@ -554,13 +563,14 @@ weeklyReportSchema.methods.getMonthlySummary = function() {
 // ==================== STATIC METHODS ====================
 
 /**
- * Find reports by business account with filters
- * @param {String} businessAccountId - Business account ID
+ * Find reports by one or more business accounts, with filters
+ * @param {String|String[]} businessAccountId - Business account ID or array of IDs
  * @param {Object} options - Filter options (year, month)
  * @returns {Promise<Array>} Array of reports
  */
 weeklyReportSchema.statics.findByBusinessAccount = function(businessAccountId, options = {}) {
-  const filter = { businessAccount: businessAccountId };
+  const ids = Array.isArray(businessAccountId) ? businessAccountId : [businessAccountId];
+  const filter = { businessAccount: { $in: ids } };
   if (options.year) filter.year = options.year;
   if (options.month) filter.month = options.month;
   
@@ -656,10 +666,68 @@ weeklyReportSchema.virtual('status').get(function() {
 });
 
 // ==================== INDEXES ====================
+// NOTE: businessAccount is now a multikey array field. This unique index
+// still works correctly — Mongo expands each account in the array into its
+// own index key, so it prevents the SAME business account from having two
+// reports in the same month/year, even when shared across multiple
+// accounts on different report documents.
 weeklyReportSchema.index({ businessAccount: 1, year: 1, month: 1 }, { unique: true });
 weeklyReportSchema.index({ year: 1, month: 1 });
 weeklyReportSchema.index({ createdBy: 1 });
 weeklyReportSchema.index({ createdAt: -1 });
 weeklyReportSchema.index({ 'weeks.weekNumber': 1 });
 
-module.exports = mongoose.model('WeeklyReport', weeklyReportSchema);
+const WeeklyReport = mongoose.model('WeeklyReport', weeklyReportSchema);
+
+// ==================== 🆕 AUTO-FIX: STALE INDEX ====================
+// An older version of this schema created a unique index on
+// { businessAccount: 1, month: 1 } WITHOUT year. That stale index is
+// still sitting in MongoDB on some deployments and causes false
+// "duplicate key" errors (E11000 ... index: businessAccount_1_month_1)
+// because it blocks the same business account from having a report in
+// the same month across DIFFERENT years, and doesn't account for the
+// businessAccount field now being an array.
+//
+// This runs once automatically whenever the app connects to MongoDB:
+//   1. Looks for the stale "businessAccount_1_month_1" index.
+//   2. Drops it if found.
+//   3. Calls syncIndexes() so the correct index (businessAccount + year +
+//      month, as declared above) exists and any other stray indexes not
+//      in the schema are cleaned up too.
+//
+// Safe to leave in place permanently — once the stale index is gone,
+// this becomes a harmless no-op on every future restart.
+async function fixStaleWeeklyReportIndexes() {
+  try {
+    const collection = WeeklyReport.collection;
+    const existingIndexes = await collection.indexes();
+    const staleIndexName = 'businessAccount_1_month_1';
+    const hasStaleIndex = existingIndexes.some((idx) => idx.name === staleIndexName);
+
+    if (hasStaleIndex) {
+      console.log(`[WeeklyReport] Dropping stale index "${staleIndexName}" (missing year)...`);
+      await collection.dropIndex(staleIndexName);
+      console.log('[WeeklyReport] Stale index dropped successfully.');
+    }
+
+    // Ensure indexes match the schema exactly (creates the correct
+    // businessAccount+year+month unique index if it's missing).
+    await WeeklyReport.syncIndexes();
+    console.log('[WeeklyReport] Indexes are in sync with the schema.');
+  } catch (err) {
+    // Don't crash the app if this fails — just log it so it can be
+    // investigated. The rest of the app can still run.
+    console.error('[WeeklyReport] Index auto-fix failed:', err.message);
+  }
+}
+
+// Run as soon as the MongoDB connection is ready. If the connection is
+// already open (e.g. this file is required after connect()), run right
+// away; otherwise wait for the "open" event.
+if (mongoose.connection.readyState === 1) {
+  fixStaleWeeklyReportIndexes();
+} else {
+  mongoose.connection.once('open', fixStaleWeeklyReportIndexes);
+}
+
+module.exports = WeeklyReport;

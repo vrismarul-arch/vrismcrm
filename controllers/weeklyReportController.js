@@ -1,6 +1,19 @@
 const mongoose = require('mongoose');
 const WeeklyReport = require('../models/WeeklyReport');
 
+// 🆕 Helper: businessAccount is now an ARRAY field (a report can belong to
+// multiple business accounts). These helpers normalize whatever shape the
+// request sends (single id, comma-separated string, or array) into a
+// clean array of valid ObjectId strings, and validate them.
+
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const normalizeIds = (value) => {
+  if (!value) return [];
+  const arr = Array.isArray(value) ? value : String(value).split(',');
+  return arr.map((id) => String(id).trim()).filter(Boolean);
+};
+
 // @desc    Get all reports with filters (with services)
 // @route   GET /api/reports
 // @access  Public
@@ -8,8 +21,23 @@ const getAllReports = async (req, res) => {
   try {
     const { businessAccount, month, year } = req.query;
     let filter = {};
-    
-    if (businessAccount) filter.businessAccount = businessAccount;
+
+    // 🆕 businessAccount can be a single id or a comma-separated list of
+    // multiple business account ids (multi-select filter on the frontend).
+    // businessAccount is an array field on the model, so use $in to match
+    // any report that includes at least one of the requested accounts.
+    const accountIds = normalizeIds(businessAccount);
+    if (accountIds.length > 0) {
+      const invalidIds = accountIds.filter((id) => !isValidObjectId(id));
+      if (invalidIds.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid business account ID',
+        });
+      }
+      filter.businessAccount = { $in: accountIds };
+    }
+
     if (month) filter.month = month;
     if (year) filter.year = parseInt(year);
     
@@ -147,18 +175,40 @@ const createOrUpdateReport = async (req, res) => {
         message: 'Please provide businessAccount, month, and year'
       });
     }
-    
-    if (!mongoose.Types.ObjectId.isValid(businessAccount)) {
+
+    // 🆕 businessAccount can now be a single id OR an array of ids
+    // (multiple business accounts on one report). Normalize + validate
+    // every id in the list.
+    const accountIds = normalizeIds(businessAccount);
+
+    if (accountIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide at least one business account'
+      });
+    }
+
+    const invalidIds = accountIds.filter((id) => !isValidObjectId(id));
+    if (invalidIds.length > 0) {
       return res.status(400).json({
         success: false,
         message: 'Invalid business account ID'
       });
     }
     
-    let report = await WeeklyReport.findOne({ businessAccount, month, year });
+    // 🆕 Look for an existing report that has EXACTLY this same set of
+    // business accounts (order-independent) for the same month/year, so
+    // editing a multi-account report updates it instead of creating a
+    // duplicate.
+    let report = await WeeklyReport.findOne({
+      businessAccount: { $all: accountIds, $size: accountIds.length },
+      month,
+      year,
+    });
     
     if (report) {
       // Update existing report
+      report.businessAccount = accountIds;
       if (weeks) report.weeks = weeks;
       if (services) report.services = services;
       if (totalStaticTarget !== undefined) report.totalStaticTarget = totalStaticTarget;
@@ -211,7 +261,7 @@ const createOrUpdateReport = async (req, res) => {
       }
       
       report = new WeeklyReport({
-        businessAccount,
+        businessAccount: accountIds,
         month,
         year,
         weeks: weeks || [],
@@ -253,6 +303,129 @@ const createOrUpdateReport = async (req, res) => {
     }
   } catch (error) {
     console.error('Error in createOrUpdateReport:', error);
+
+    // 🆕 Surface the duplicate-key error (unique businessAccount+year+month
+    // multikey index) with a clearer message instead of a generic 500.
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: 'One of the selected business accounts already has a report for this month and year',
+        error: error.message,
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update an existing report by ID (used by the "Edit report" flow)
+// @route   PUT /api/reports/:id
+// @access  Public
+const updateReportById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID'
+      });
+    }
+
+    const {
+      businessAccount,
+      month,
+      year,
+      weeks,
+      services,
+      serviceDetails,
+      totalStaticTarget,
+      totalReelsTarget,
+      totalYouTubeShortsTarget,
+      totalYouTubeVideoTarget
+    } = req.body;
+
+    const report = await WeeklyReport.findById(id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+
+    // 🆕 businessAccount can be a single id or an array of ids (multiple
+    // business accounts). Validate and normalize before saving.
+    if (businessAccount !== undefined) {
+      const accountIds = normalizeIds(businessAccount);
+
+      if (accountIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide at least one business account'
+        });
+      }
+
+      const invalidIds = accountIds.filter((idVal) => !isValidObjectId(idVal));
+      if (invalidIds.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid business account ID'
+        });
+      }
+
+      report.businessAccount = accountIds;
+    }
+
+    if (month !== undefined) report.month = month;
+    if (year !== undefined) report.year = year;
+    if (weeks !== undefined) report.weeks = weeks;
+    if (services !== undefined) report.services = services;
+    if (totalStaticTarget !== undefined) report.totalStaticTarget = totalStaticTarget;
+    if (totalReelsTarget !== undefined) report.totalReelsTarget = totalReelsTarget;
+    if (totalYouTubeShortsTarget !== undefined) report.totalYouTubeShortsTarget = totalYouTubeShortsTarget;
+    if (totalYouTubeVideoTarget !== undefined) report.totalYouTubeVideoTarget = totalYouTubeVideoTarget;
+
+    if (serviceDetails) {
+      const detailsMap = new Map();
+      Object.entries(serviceDetails).forEach(([key, value]) => {
+        detailsMap.set(key, value);
+      });
+      report.serviceDetails = detailsMap;
+    }
+
+    report.calculateTotals();
+    report.calculateCompleted();
+    report.calculateProgress();
+
+    await report.save();
+
+    await report.populate('businessAccount', 'businessName email phone');
+    await report.populate('createdBy', 'name email');
+    await report.populate('services', 'serviceName isActive gstRate');
+
+    const reportObj = report.toObject();
+    reportObj.serviceDetails = report.serviceDetails ? Object.fromEntries(report.serviceDetails) : {};
+
+    res.status(200).json({
+      success: true,
+      message: 'Report updated successfully',
+      data: reportObj
+    });
+  } catch (error) {
+    console.error('Error in updateReportById:', error);
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: 'One of the selected business accounts already has a report for this month and year',
+        error: error.message,
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Server Error',
@@ -622,6 +795,10 @@ const getReportsByBusinessAccount = async (req, res) => {
       });
     }
     
+    // businessAccount is an array field — matching a single scalar value
+    // against it works automatically in Mongo (matches if the array
+    // contains that value), so no $in needed here since this is always a
+    // single id coming from the URL path.
     let filter = { businessAccount: businessAccountId };
     if (year) filter.year = parseInt(year);
     
@@ -776,7 +953,20 @@ const getMonthlyStatistics = async (req, res) => {
     const { businessAccount, year } = req.query;
     
     let filter = {};
-    if (businessAccount) filter.businessAccount = businessAccount;
+
+    // 🆕 Support single or multiple business account ids here too.
+    const accountIds = normalizeIds(businessAccount);
+    if (accountIds.length > 0) {
+      const invalidIds = accountIds.filter((idVal) => !isValidObjectId(idVal));
+      if (invalidIds.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid business account ID',
+        });
+      }
+      filter.businessAccount = { $in: accountIds };
+    }
+
     if (year) filter.year = parseInt(year);
     else filter.year = new Date().getFullYear();
     
@@ -1182,12 +1372,7 @@ const getClientReportById = async (req, res) => {
       _id: report._id,
       month: report.month,
       year: report.year,
-      businessAccount: {
-        _id: report.businessAccount._id,
-        businessName: report.businessAccount.businessName,
-        email: report.businessAccount.email,
-        phone: report.businessAccount.phone
-      },
+      businessAccount: report.businessAccount,
       services: report.services,
       serviceDetails: serviceDetailsObj,
       summary: {
@@ -1389,6 +1574,7 @@ module.exports = {
   getAllReports,
   getReportById,
   createOrUpdateReport,
+  updateReportById,
   updateReportServices,
   updateWeek,
   addPostToWeek,
